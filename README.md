@@ -23,7 +23,15 @@ mte/
 # Getting Started
 
 ## Installing
-* 'steps' on setting up
+* Install lua (tested with v5.2.4) (brew install lua, lua for windows) for building the source.
+
+## Building
+```bash
+# At the root of the project
+./amalg.lua -o ./dist/mte.lua -s ./src/mte.lua
+
+# Compiled project will be at dist/mte.lua
+```
 
 # Frequently asked questions
 * questions

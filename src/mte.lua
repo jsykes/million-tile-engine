@@ -9800,7 +9800,7 @@ end
 							mapStorage[src].tilesets[tileSetIndex] = {}
 						
 							if temp.child[i].properties.source then
-								local tempSet = xml.loadFile(directory..temp.child[i].properties.source)
+								local tempSet = xml.loadFile(directory..temp.child[i].properties.source, base)
 								if not tempSet.properties.spacing then 
 									tempSet.properties.spacing = 0
 								end
