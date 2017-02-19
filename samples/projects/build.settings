@@ -1,0 +1,29 @@
+settings =
+{
+    orientation =
+    {
+        default = "landscapeRight",
+        supported = { "landscapeLeft", "landscapeRight" }
+    },
+    
+    android =
+    {
+        installLocation = "preferExternal",
+        largeHeap = true,
+    },
+    
+    iphone =
+    {
+        plist =
+        {
+            CFBundleDisplayName = "MTE Sample App",
+            CFBundleName = "MTE Sample App",
+            CFBundleIconFiles = {},  -- Required!
+            UILaunchImages = {},     -- Required!
+            UIApplicationExitsOnSuspend = false,
+            UIPrerenderedIcon = true,
+            UIStatusBarHidden = true,
+        },
+    },
+    
+}
