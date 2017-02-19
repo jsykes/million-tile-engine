@@ -42,3 +42,9 @@ luac.out
 *.x86_64
 *.hex
 
+# IDE files
+# Corona SDK
+.CoronaLiveBuild
+# Lua Glider
+CiderDebugger.lua
+GliderProperties.proj
