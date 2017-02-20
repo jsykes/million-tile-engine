@@ -1,2 +1,12 @@
 return {
+  [ "src.Camera" ] = "L",
+  [ "src.DebugStats" ] = "L",
+  [ "src.Light" ] = "L",
+  [ "src.Map" ] = "L",
+  [ "src.PerlinNoise" ] = "L",
+  [ "src.PhysicsData" ] = "L",
+  [ "src.SaveMap" ] = "L",
+  [ "src.Sprites" ] = "L",
+  [ "src.Screen" ] = "L",
+  [ "src.Xml" ] = "L",
 }

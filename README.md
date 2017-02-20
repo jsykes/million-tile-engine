@@ -28,7 +28,7 @@ mte/
 ## Building
 ```bash
 # At the root of the project
-./amalg.lua -o ./dist/mte.lua -s ./src/mte.lua
+./amalg.lua -o ./dist/mte.lua -s ./src/mte.lua -c
 
 # Compiled project will be at dist/mte.lua
 ```
