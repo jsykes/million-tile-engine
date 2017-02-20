@@ -1,0 +1,1 @@
+Coronastein3D is not in active development. It will not receive any technical support, nor does it have any documentation. It was included with the MTE files as a little bonus for MTE customers, something to tinker with as a lark. Play with it. Dissect it. Modify it. Make something of it. Have fun!

@@ -1,0 +1,302 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<map version="1.0" orientation="orthogonal" width="16" height="16" tilewidth="32" tileheight="32">
+ <tileset firstgid="1" name="townFlat" tilewidth="32" tileheight="32" spacing="2" margin="1">
+  <image source="tilesets/townFlat.png" width="1020" height="544"/>
+  <tile id="18">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="19">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="20">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="48">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="50">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="54">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="55">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="75">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="76">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="77">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="78">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="80">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="81">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="82">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="83">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="108">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="109">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="110">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="123">
+   <properties>
+    <property name="animDelay" value="400"/>
+    <property name="animFrameSelect" value="relative"/>
+    <property name="animFrames" value="[0, 30, 60, 90]"/>
+    <property name="animSync" value="1"/>
+   </properties>
+  </tile>
+  <tile id="124">
+   <properties>
+    <property name="animDelay" value="400"/>
+    <property name="animFrameSelect" value="relative"/>
+    <property name="animFrames" value="[0, 30, 60, 90]"/>
+    <property name="animSync" value="2"/>
+   </properties>
+  </tile>
+  <tile id="256">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="257">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="292">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="293">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="296">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="297">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="378">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="379">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="380">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="408">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="409">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="410">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="434">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="435">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="438">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="439">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="464">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="465">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="474">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="475">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+  <tile id="476">
+   <properties>
+    <property name="physics" value="true"/>
+   </properties>
+  </tile>
+ </tileset>
+ <layer name="ground" width="16" height="16">
+  <data encoding="csv">
+191,191,191,191,191,191,191,191,191,191,191,191,191,191,191,191,
+191,221,221,221,221,221,221,221,221,221,221,221,221,221,191,191,
+192,241,241,241,241,241,241,241,241,241,241,241,241,241,190,191,
+192,241,241,241,241,241,241,241,241,241,241,241,241,241,190,191,
+192,241,241,241,241,241,241,241,241,241,241,241,241,241,190,191,
+192,241,241,241,241,241,241,241,241,241,241,241,241,241,190,191,
+192,241,241,241,0,241,77,77,77,241,0,241,241,241,190,191,
+192,241,241,241,0,311,311,311,311,311,0,241,241,241,190,191,
+192,241,241,241,0,311,311,311,311,311,0,241,241,241,190,191,
+192,241,241,241,0,311,311,311,311,311,0,241,241,241,190,191,
+192,241,241,241,0,311,311,311,311,311,0,241,241,241,190,191,
+192,241,241,241,258,76,78,311,76,78,258,241,241,241,190,191,
+192,241,241,241,241,241,241,311,241,241,241,241,241,241,190,191,
+192,241,241,241,241,241,241,311,241,241,241,241,241,241,190,191,
+192,241,241,241,241,241,241,311,241,241,241,241,241,241,190,191,
+191,161,161,161,161,161,161,161,161,161,161,161,161,161,191,191
+</data>
+ </layer>
+ <layer name="ground objects" width="16" height="16">
+  <data encoding="csv">
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,293,294,0,0,0,0,0,0,0,293,294,0,0,
+0,0,0,0,0,0,0,293,294,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,289,77,76,0,0,0,78,77,289,0,0,0,0,
+0,0,0,289,77,0,0,0,0,0,77,289,0,0,0,0,
+0,0,0,289,77,0,0,0,0,0,77,289,0,0,0,0,
+0,0,0,0,77,0,0,0,0,0,77,0,0,0,0,0,
+0,0,409,0,77,0,0,0,0,0,77,0,409,0,0,0,
+0,0,409,0,0,0,0,0,0,0,0,0,409,0,0,0,
+0,0,409,0,0,0,0,0,0,0,0,0,409,0,0,0,
+0,0,439,380,380,380,381,0,379,380,380,380,411,0,0,0,
+0,0,0,0,0,0,409,0,409,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+</data>
+ </layer>
+ <objectgroup name="sprites">
+  <properties>
+   <property name="spriteLayer" value="true"/>
+  </properties>
+ </objectgroup>
+ <layer name="ceiling objects" width="16" height="16">
+  <data encoding="csv">
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,263,264,0,0,0,0,0,0,0,263,264,0,0,
+0,0,0,0,0,0,0,263,264,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,198,16,17,17,17,18,198,0,0,0,0,0,
+0,0,0,0,228,46,47,47,47,48,228,0,0,0,0,0,
+0,0,0,0,228,0,0,0,0,0,228,0,0,0,0,0,
+0,0,0,0,228,0,0,0,0,0,228,0,0,0,0,0,
+0,0,0,0,228,0,0,0,0,0,228,0,0,0,0,0,
+0,0,0,0,198,16,18,0,16,18,198,0,0,0,0,0,
+0,0,0,0,228,46,48,0,46,48,228,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+</data>
+ </layer>
+ <layer name="ceiling" width="16" height="16">
+  <data encoding="csv">
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,375,375,375,375,375,375,375,0,0,0,0,0,
+0,0,0,0,405,405,405,405,405,405,405,0,0,0,0,0,
+0,0,0,0,405,405,405,405,405,405,405,0,0,0,0,0,
+0,0,0,0,405,405,405,405,405,405,405,0,0,0,0,0,
+0,0,0,0,405,405,405,405,405,405,405,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
+0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0
+</data>
+ </layer>
+</map>
