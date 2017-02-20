@@ -259,6 +259,7 @@ M.getMap = Map.getMap
 M.getMapObj = Map.getMapObj
 M.getMapProperties = Map.getMapProperties
 M.getLayerProperties = Map.getLayerProperties
+M.getObjectLayer = Map.getObjectLayer
 M.getSpriteLayer = Map.getSpriteLayer
 M.getTileAt = Map.getTileAt
 M.getTileObj = Map.getTileObj
