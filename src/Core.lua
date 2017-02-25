@@ -1,5 +1,7 @@
 local Core = {}
 
+local json = require("json")
+
 local Camera = require("src.Camera")
 local Map = require("src.Map")
 local Screen = require("src.Screen")
@@ -7,12 +9,14 @@ local Sprites = require("src.Sprites")
 local PhysicsData = require("src.PhysicsData")
 local Light = require("src.Light")
 
-
 Core.tileAnimsFrozen = false
 Core.syncData = {}
 
 local isMoving = {}
 local count = 0
+
+--STANDARD ISO VARIABLES
+local R45 = math.rad(45)
 
 --LISTENERS
 local propertyListeners = {}
@@ -6340,6 +6344,350 @@ end
 Core.addObjectDrawListener = function(name, listener)
     objectDrawListeners[name] = true
     Map.masterGroup:addEventListener(name, listener)
+end
+
+-----------------------------------------------------------
+
+Core.refresh = function()
+    
+    Map.setMapProperties(Map.map.properties)
+    for i = 1, #Map.map.layers, 1 do
+        Core.setLayerProperties(i, Map.map.layers[i].properties)
+    end
+    for i = 1, #Map.map.layers, 1 do
+        for locX = Map.masterGroup[i].vars.camera[1], Map.masterGroup[i].vars.camera[3], 1 do
+            for locY = Map.masterGroup[i].vars.camera[2], Map.masterGroup[i].vars.camera[4], 1 do
+                --print(locX, locY)
+                Core.updateTile({locX = locX, locY = locY, layer = i, tile = -1})
+                cullLargeTile(locX, locY, i, true)
+            end
+        end
+        Map.masterGroup[i].vars.camera = nil
+    end
+    Core.update()
+    --PROCESS ANIMATION DATA
+    for i = 1, #Map.map.tilesets, 1 do
+        if Map.map.tilesets[i].tileproperties then
+            for key,value in pairs(Map.map.tilesets[i].tileproperties) do
+                for key2,value2 in pairs(Map.map.tilesets[i].tileproperties[key]) do
+                    if key2 == "animFrames" then
+                        local tempFrames
+                        if type(value2) == "string" then
+                            Map.map.tilesets[i].tileproperties[key]["animFrames"] = json.decode(value2)
+                            tempFrames = json.decode(value2)
+                        else
+                            Map.map.tilesets[i].tileproperties[key]["animFrames"] = value2
+                            tempFrames = value2
+                        end
+                        if Map.map.tilesets[i].tileproperties[key]["animFrameSelect"] == "relative" then
+                            local frames = {}
+                            for f = 1, #tempFrames, 1 do
+                                frames[f] = (tonumber(key) + 1) + tempFrames[f]
+                            end
+                            Map.map.tilesets[i].tileproperties[key]["sequenceData"] = {
+                                name="null",
+                                frames=frames,
+                                time = tonumber(Map.map.tilesets[i].tileproperties[key]["animDelay"]),
+                                loopCount = 0
+                            }
+                        elseif Map.map.tilesets[i].tileproperties[key]["animFrameSelect"] == "absolute" then
+                            Map.map.tilesets[i].tileproperties[key]["sequenceData"] = {
+                                name="null",
+                                frames=tempFrames,
+                                time = tonumber(Map.map.tilesets[i].tileproperties[key]["animDelay"]),
+                                loopCount = 0
+                            }
+                        end
+                        Map.map.tilesets[i].tileproperties[key]["animSync"] = tonumber(Map.map.tilesets[i].tileproperties[key]["animSync"]) or 1
+                        if not Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ] then
+                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ] = {}
+                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].time = (Map.map.tilesets[i].tileproperties[key]["sequenceData"].time / #Map.map.tilesets[i].tileproperties[key]["sequenceData"].frames) / Map.frameTime
+                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].currentFrame = 1
+                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].counter = Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].time
+                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].frames = Map.map.tilesets[i].tileproperties[key]["sequenceData"].frames
+                        end
+                    end
+                    if key2 == "shape" then
+                        if type(value2) == "string" then
+                            Map.map.tilesets[i].tileproperties[key]["shape"] = json.decode(value2)
+                        else
+                            Map.map.tilesets[i].tileproperties[key]["shape"] = value2
+                        end
+                    end
+                    if key2 == "filter" then
+                        if type(value2) == "string" then
+                            Map.map.tilesets[i].tileproperties[key]["filter"] = json.decode(value2)
+                        else
+                            Map.map.tilesets[i].tileproperties[key]["filter"] = value2
+                        end
+                    end
+                    if key2 == "opacity" then					
+                        frameIndex = tonumber(key) + (Map.map.tilesets[i].firstgid - 1) + 1
+                        
+                        if not Map.map.lightingData[frameIndex] then
+                            Map.map.lightingData[frameIndex] = {}
+                        end
+                        if type(value2) == "string" then
+                            Map.map.lightingData[frameIndex].opacity = json.decode(value2)
+                        else
+                            Map.map.lightingData[frameIndex].opacity = value2
+                        end
+                    end
+                end
+            end
+        end			
+        if not Map.map.tilesets[i].properties then
+            Map.map.tilesets[i].properties = {}
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Core.setLayerProperties = function(layer, t)
+    if not layer then
+        print("ERROR(setLayerProperties): No layer specified.")
+    end
+    local lyr = layer
+    if lyr > #Map.map.layers then
+        print("Warning(setLayerProperties): The layer index is too high. Defaulting to top layer.")
+        lyr = #Map.map.layers
+    elseif lyr < 1 then
+        print("Warning(setLayerProperties): The layer index is too low. Defaulting to layer 1.")
+        lyr = 1
+    end
+    local i = lyr
+    Map.map.layers[lyr].properties = t
+    if not Map.map.layers[i].properties then
+        Map.map.layers[i].properties = {}
+        Map.map.layers[i].properties.level = "1"
+        Map.map.layers[i].properties.scaleX = 1
+        Map.map.layers[i].properties.scaleY = 1
+        Map.map.layers[i].properties.parallaxX = 1
+        Map.map.layers[i].properties.parallaxY = 1
+    else
+        if not Map.map.layers[i].properties.level then
+            Map.map.layers[i].properties.level = "1"
+        end
+        if Map.map.layers[i].properties.scale then
+            Map.map.layers[i].properties.scaleX = Map.map.layers[i].properties.scale
+            Map.map.layers[i].properties.scaleY = Map.map.layers[i].properties.scale
+        else
+            if not Map.map.layers[i].properties.scaleX then
+                Map.map.layers[i].properties.scaleX = 1
+            end
+            if not Map.map.layers[i].properties.scaleY then
+                Map.map.layers[i].properties.scaleY = 1
+            end
+        end
+    end
+    Map.map.layers[i].properties.scaleX = tonumber(Map.map.layers[i].properties.scaleX)
+    Map.map.layers[i].properties.scaleY = tonumber(Map.map.layers[i].properties.scaleY)
+    if Map.map.layers[lyr].properties.parallax then
+        Map.map.layers[lyr].parallaxX = Map.map.layers[lyr].properties.parallax / Map.map.layers[lyr].properties.scaleX
+        Map.map.layers[lyr].parallaxY = Map.map.layers[lyr].properties.parallax / Map.map.layers[lyr].properties.scaleY
+    else
+        if Map.map.layers[lyr].properties.parallaxX then
+            Map.map.layers[lyr].parallaxX = Map.map.layers[lyr].properties.parallaxX / Map.map.layers[lyr].properties.scaleX
+        else
+            Map.map.layers[lyr].parallaxX = 1
+        end
+        if Map.map.layers[lyr].properties.parallaxY then
+            Map.map.layers[lyr].parallaxY = Map.map.layers[lyr].properties.parallaxY / Map.map.layers[lyr].properties.scaleY
+        else
+            Map.map.layers[lyr].parallaxY = 1
+        end
+    end
+    --CHECK REFERENCE LAYER
+    if Map.refLayer == lyr then
+        if Map.map.layers[lyr].parallaxX ~= 1 or Map.map.layers[lyr].parallaxY ~= 1 then
+            for i = 1, #Map.map.layers, 1 do
+                if Map.map.layers[i].parallaxX == 1 and Map.map.layers[i].parallaxY == 1 then
+                    Map.refLayer = i
+                    break
+                end
+            end
+            if not Map.refLayer then
+                Map.refLayer = 1
+            end
+        end
+    end
+    
+    --DETECT LAYER WRAP
+    Camera.layerWrapX[lyr] = Camera.worldWrapX
+    Camera.layerWrapY[lyr] = Camera.worldWrapY
+    if Map.map.layers[lyr].properties.wrap then
+        if Map.map.layers[lyr].properties.wrap == "true" then
+            Camera.layerWrapX[lyr] = true
+            Camera.layerWrapY[lyr] = true
+        elseif Map.map.layers[lyr].properties.wrap == "false" then
+            Camera.layerWrapX[lyr] = false
+            Camera.layerWrapY[lyr] = false
+        end
+    end
+    if Map.map.layers[lyr].properties.wrapX then
+        if Map.map.layers[lyr].properties.wrapX == "true" then
+            Camera.layerWrapX[lyr] = true
+        elseif Map.map.layers[lyr].properties.wrapX == "false" then
+            Camera.layerWrapX[lyr] = false
+        end
+    end
+    if Map.map.layers[lyr].properties.wrapY then
+        if Map.map.layers[lyr].properties.wrapY == "true" then
+            Camera.layerWrapY[lyr] = true
+        elseif Map.map.layers[lyr].properties.wrapY == "false" then
+            Camera.layerWrapX[lyr] = false
+        end
+    end
+    
+    --LOAD PHYSICS
+    if PhysicsData.enablePhysicsByLayer == 1 then
+        if Map.map.layers[i].properties.physics == "true" then
+            PhysicsData.enablePhysics[i] = true
+            PhysicsData.layer[i] = {}
+            PhysicsData.layer[i].defaultDensity = PhysicsData.defaultDensity
+            PhysicsData.layer[i].defaultFriction = PhysicsData.defaultFriction
+            PhysicsData.layer[i].defaultBounce = PhysicsData.defaultBounce
+            PhysicsData.layer[i].defaultBodyType = PhysicsData.defaultBodyType
+            PhysicsData.layer[i].defaultShape = PhysicsData.defaultShape
+            PhysicsData.layer[i].defaultRadius = PhysicsData.defaultRadius
+            PhysicsData.layer[i].defaultFilter = PhysicsData.defaultFilter
+            PhysicsData.layer[i].isActive = true
+            PhysicsData.layer[i].isAwake = true
+            
+            if Map.map.layers[i].properties.density then
+                PhysicsData.layer[i].defaultDensity = Map.map.layers[i].properties.density
+            end
+            if Map.map.layers[i].properties.friction then
+                PhysicsData.layer[i].defaultFriction = Map.map.layers[i].properties.friction
+            end
+            if Map.map.layers[i].properties.bounce then
+                PhysicsData.layer[i].defaultBounce = Map.map.layers[i].properties.bounce
+            end
+            if Map.map.layers[i].properties.bodyType then
+                PhysicsData.layer[i].defaultBodyType = Map.map.layers[i].properties.bodyType
+            end
+            if Map.map.layers[i].properties.shape then
+                if type(Map.map.layers[i].properties.shape) == "string" then
+                    PhysicsData.layer[i].defaultShape = json.decode(Map.map.layers[i].properties.shape)
+                else
+                    PhysicsData.layer[i].defaultShape = Map.map.layers[i].properties.shape
+                end
+            end
+            if Map.map.layers[i].properties.radius then
+                PhysicsData.layer[i].defaultRadius = Map.map.layers[i].properties.radius
+            end
+            if Map.map.layers[i].properties.groupIndex or Map.map.layers[i].properties.categoryBits or Map.map.layers[i].properties.maskBits then
+                PhysicsData.layer[i].defaultFilter = {categoryBits = tonumber(Map.map.layers[i].properties.categoryBits),
+                    maskBits = tonumber(Map.map.layers[i].properties.maskBits),
+                    groupIndex = tonumber(Map.map.layers[i].properties.groupIndex)
+                }
+            end
+        end
+    elseif PhysicsData.enablePhysicsByLayer == 2 then
+        PhysicsData.enablePhysics[i] = true
+        PhysicsData.layer[i] = {}
+        PhysicsData.layer[i].defaultDensity = PhysicsData.defaultDensity
+        PhysicsData.layer[i].defaultFriction = PhysicsData.defaultFriction
+        PhysicsData.layer[i].defaultBounce = PhysicsData.defaultBounce
+        PhysicsData.layer[i].defaultBodyType = PhysicsData.defaultBodyType
+        PhysicsData.layer[i].defaultShape = PhysicsData.defaultShape
+        PhysicsData.layer[i].defaultRadius = PhysicsData.defaultRadius
+        PhysicsData.layer[i].defaultFilter = PhysicsData.defaultFilter
+        PhysicsData.layer[i].isActive = true
+        PhysicsData.layer[i].isAwake = true
+        
+        if Map.map.layers[i].properties.density then
+            PhysicsData.layer[i].defaultDensity = Map.map.layers[i].properties.density
+        end
+        if Map.map.layers[i].properties.friction then
+            PhysicsData.layer[i].defaultFriction = Map.map.layers[i].properties.friction
+        end
+        if Map.map.layers[i].properties.bounce then
+            PhysicsData.layer[i].defaultBounce = Map.map.layers[i].properties.bounce
+        end
+        if Map.map.layers[i].properties.bodyType then
+            PhysicsData.layer[i].defaultBodyType = Map.map.layers[i].properties.bodyType
+        end
+        if Map.map.layers[i].properties.shape then
+            if type(Map.map.layers[i].properties.shape) == "string" then
+                PhysicsData.layer[i].defaultShape = json.decode(Map.map.layers[i].properties.shape)
+            else
+                PhysicsData.layer[i].defaultShape = Map.map.layers[i].properties.shape
+            end
+        end
+        if Map.map.layers[i].properties.radius then
+            PhysicsData.layer[i].defaultRadius = Map.map.layers[i].properties.radius
+        end
+        if Map.map.layers[i].properties.groupIndex or Map.map.layers[i].properties.categoryBits or Map.map.layers[i].properties.maskBits then
+            PhysicsData.layer[i].defaultFilter = {categoryBits = tonumber(Map.map.layers[i].properties.categoryBits),
+                maskBits = tonumber(Map.map.layers[i].properties.maskBits),
+                groupIndex = tonumber(Map.map.layers[i].properties.groupIndex)
+            }
+        end			
+    end
+    
+    --LIGHTING
+    if Map.map.properties then
+        if Map.map.properties.lightingStyle then
+            local levelLighting = {}
+            for i = 1, Map.map.numLevels, 1 do
+                levelLighting[i] = {}
+            end
+            if not Map.map.properties.lightRedStart then
+                Map.map.properties.lightRedStart = "1"
+            end
+            if not Map.map.properties.lightGreenStart then
+                Map.map.properties.lightGreenStart = "1"
+            end
+            if not Map.map.properties.lightBlueStart then
+                Map.map.properties.lightBlueStart = "1"
+            end
+            if Map.map.properties.lightingStyle == "diminish" then
+                local rate = tonumber(Map.map.properties.lightRate)
+                levelLighting[Map.map.numLevels].red = tonumber(Map.map.properties.lightRedStart)
+                levelLighting[Map.map.numLevels].green = tonumber(Map.map.properties.lightGreenStart)
+                levelLighting[Map.map.numLevels].blue = tonumber(Map.map.properties.lightBlueStart)
+                for i = Map.map.numLevels - 1, 1, -1 do
+                    levelLighting[i].red = levelLighting[Map.map.numLevels].red - (rate * (Map.map.numLevels - i))
+                    if levelLighting[i].red < 0 then
+                        levelLighting[i].red = 0
+                    end
+                    levelLighting[i].green = levelLighting[Map.map.numLevels].green - (rate * (Map.map.numLevels - i))
+                    if levelLighting[i].green < 0 then
+                        levelLighting[i].green = 0
+                    end
+                    levelLighting[i].blue = levelLighting[Map.map.numLevels].blue - (rate * (Map.map.numLevels - i))
+                    if levelLighting[i].blue < 0 then
+                        levelLighting[i].blue = 0
+                    end
+                end
+            end
+            for i = 1, #Map.map.layers, 1 do
+                if Map.map.layers[i].properties.lightRed then
+                    Map.map.layers[i].redLight = tonumber(Map.map.layers[i].properties.lightRed)
+                else
+                    Map.map.layers[i].redLight = levelLighting[Map.map.layers[i].properties.level].red
+                end
+                if Map.map.layers[i].properties.lightGreen then
+                    Map.map.layers[i].greenLight = tonumber(Map.map.layers[i].properties.lightGreen)
+                else
+                    Map.map.layers[i].greenLight = levelLighting[Map.map.layers[i].properties.level].green
+                end
+                if Map.map.layers[i].properties.lightBlue then
+                    Map.map.layers[i].blueLight = tonumber(Map.map.layers[i].properties.lightBlue)
+                else
+                    Map.map.layers[i].blueLight = levelLighting[Map.map.layers[i].properties.level].blue
+                end
+            end
+        else
+            for i = 1, #Map.map.layers, 1 do
+                Map.map.layers[i].redLight = 1
+                Map.map.layers[i].greenLight = 1
+                Map.map.layers[i].blueLight = 1
+            end
+        end
+    end
 end
 
 return Core

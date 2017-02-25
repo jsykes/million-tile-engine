@@ -2,6 +2,7 @@ local Sprites = {}
 
 local Camera = require("src.Camera")
 local Map = require("src.Map")
+local Light = require("src.Light")
 
 Sprites.sprites = {}
 

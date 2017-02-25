@@ -4,495 +4,6 @@ do
 
 do
 local _ENV = _ENV
-package.preload[ "src.PhysicsData" ] = function( ... ) local arg = _G.arg;
-local PhysicsData = {}
-
------------------------------------------------------------
-
-PhysicsData.defaultDensity = 1.0
-PhysicsData.defaultFriction = 0.1
-PhysicsData.defaultBounce = 0
-PhysicsData.defaultBodyType = "static"
-PhysicsData.defaultShape = nil
-PhysicsData.defaultRadius = nil
-PhysicsData.defaultFilter = nil
-PhysicsData.layer = {}
-
-PhysicsData.managePhysicsStates = true
-
-PhysicsData.enablePhysicsByLayer = 0
-PhysicsData.enablePhysics = {}
-
------------------------------------------------------------
-
-PhysicsData.enableBox2DPhysics = function(arg)
-    if ( arg == "by layer" ) then
-        PhysicsData.enablePhysicsByLayer = 1
-    elseif ( arg == "all" or arg == "Map.map" or not arg ) then
-        PhysicsData.enablePhysicsByLayer = 2
-    end
-end
-
------------------------------------------------------------
-
-return PhysicsData
-
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "src.Sprites" ] = function( ... ) local arg = _G.arg;
-local Sprites = {}
-
-local Camera = require("src.Camera")
-local Map = require("src.Map")
-
-Sprites.sprites = {}
-
-Sprites.movingSprites = {}
-
-Sprites.tempObjects = {}
-
-Sprites.holdSprite = nil
-
-Sprites.enableSpriteSorting = false
-
------------------------------------------------------------
-
-Sprites.removeSprite = function(sprite, destroyObject)
-    if sprite.light then
-        sprite.removeLight()
-    end
-    if Camera.cameraFocus == sprite then
-        Camera.cameraFocus = nil
-    end
-    if Light.pointLightSource == sprite then
-        Light.pointLightSource = nil
-    end
-    if Sprites.movingSprites[sprite] then
-        Sprites.movingSprites[sprite] = nil
-    end
-    if sprite.name then
-        if Sprites.sprites[sprite.name] then
-            Sprites.sprites[sprite.name] = nil
-        end
-    end
-    if destroyObject == nil or destroyObject == true then
-        sprite:removeSelf()
-        sprite = nil
-    else
-        local stage = display.getCurrentStage()
-        stage:insert(sprite)
-    end
-end
-
------------------------------------------------------------
-
-Sprites.addSprite = function(sprite, setup)
-    local layer
-    if setup.level then
-        layer = Map.spriteLayers[setup.level]
-        if not layer then
-            --print("Warning(addSprite): No Sprite Layer at level "..setup.level..". Defaulting to "..Map.refLayer..".")
-            for i = 1, #Map.map.layers, 1 do
-                if Map.map.layers[i].properties.level == setup.level then
-                    layer = i
-                    break
-                end
-            end
-            if not layer then
-                layer = Map.refLayer
-            end
-        end
-    elseif setup.layer then
-        layer = setup.layer
-        if layer > #Map.map.layers then
-            print("Warning(addSprite): Layer out of bounds. Defaulting to "..Map.refLayer..".")
-            layer = Map.refLayer
-        end
-    else
-        if sprite.parent.vars then
-            layer = sprite.parent.vars.layer
-        else
-            --print("Warning(addSprite): You forgot to specify a Layer or level. Defaulting to "..Map.refLayer..".")
-            layer = Map.refLayer
-        end
-    end
-    
-    if setup.color then
-        sprite.color = setup.color
-    end
-    if sprite.lighting == nil then
-        if setup.lighting ~= nil then
-            sprite.lighting = setup.lighting
-        else
-            sprite.lighting = true
-        end
-    end
-    
-    if not setup.kind or setup.kind == "sprite" then
-        sprite.objType = 1
-        if sprite.lighting then
-            if not sprite.color then
-                sprite.color = {1, 1, 1}
-            end
-            local mL = Map.map.layers[setup.layer]
-            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
-        end
-    elseif setup.kind == "imageRect" then
-        sprite.objType = 2
-        if sprite.lighting then
-            if not sprite.color then
-                sprite.color = {1, 1, 1}
-            end
-            local mL = Map.map.layers[setup.layer]
-            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
-        end
-    elseif setup.kind == "group" then
-        sprite.objType = 3
-        if sprite.lighting then
-            local mL = Map.map.layers[setup.layer]
-            for i = 1, sprite.numChildren, 1 do
-                if sprite[i]._class then
-                    if sprite.color and not sprite[i].color then
-                        sprite[i].color = sprite.color
-                    end
-                    if not sprite[i].color then
-                        sprite[i].color = {1, 1, 1}
-                    end
-                    sprite[i]:setFillColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
-                end
-            end
-        end
-    elseif setup.kind == "vector" then
-        sprite.objType = 4
-        if sprite.lighting then
-            local mL = Map.map.layers[setup.layer]
-            for i = 1, sprite.numChildren, 1 do
-                if sprite[i]._class then
-                    if sprite.color and not sprite[i].color then
-                        sprite[i].color = sprite.color
-                    end
-                    if not sprite[i].color then
-                        sprite[i].color = {1, 1, 1}
-                    end
-                    sprite[i]:setStrokeColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
-                end
-            end
-        end
-    end
-    
-    if setup.followHeightMap then
-        sprite.followHeightMap = setup.followHeightMap
-    end
-    if setup.heightMap then
-        sprite.heightMap = setup.heightMap
-    end
-    if setup.offscreenPhysics then
-        sprite.offscreenPhysics = true
-    end
-    if Camera.enableLighting then
-        sprite.litBy = {}
-        sprite.prevLitBy = {}
-    end
-    local spriteName = sprite.name or setup.name
-    if not spriteName or spriteName == "" then
-        spriteName = ""..sprite.x.."_"..sprite.y.."_"..layer
-    end
-    if Sprites.sprites[spriteName] and Sprites.sprites[spriteName] ~= sprite then
-        local tempName = spriteName
-        local counter = 1
-        while Sprites.sprites[tempName] do
-            tempName = ""..spriteName..counter
-            counter = counter + 1
-        end
-        spriteName = tempName
-    end
-    sprite.name = spriteName
-    if not Sprites.sprites[spriteName] then
-        Sprites.sprites[spriteName] = sprite
-    end
-    sprite.park = false
-    if setup.park == true then
-        sprite.park = true
-    end
-    
-    if setup.sortSprite ~= nil then
-        sprite.sortSprite = setup.sortSprite
-    else
-        sprite.sortSprite = false
-    end
-    if setup.sortSpriteOnce ~= nil then
-        sprite.sortSpriteOnce = setup.sortSpriteOnce
-    end
-    if not sprite.constrainToMap then
-        sprite.constrainToMap = {true, true, true, true}
-    end
-    if setup.constrainToMap ~= nil then
-        sprite.constrainToMap = setup.constrainToMap
-    end
-    sprite.locX = nil
-    sprite.locY = nil
-    sprite.levelPosX = nil
-    sprite.levelPosY = nil
-    if setup.layer then
-        sprite.layer = setup.layer
-        sprite.level = Map.map.layers[setup.layer].properties.level
-    end
-    sprite.deltaX = {}
-    sprite.deltaY = {}
-    sprite.velX = nil
-    sprite.velY = nil
-    sprite.isMoving = false
-    if Map.map.orientation == Map.Type.Isometric then
-        if setup.levelWidth then
-            sprite.levelWidth = setup.levelWidth
-            if sprite.objType ~= 3 then
-                sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
-            end
-        else
-            sprite.levelWidth = sprite.width
-        end
-        if setup.levelHeight then
-            sprite.levelHeight = setup.levelHeight
-            if sprite.objType ~= 3 then
-                sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
-            end
-        else
-            sprite.levelHeight = sprite.height
-        end
-        if setup.levelPosX then
-            sprite.levelPosX = setup.levelPosX			
-            sprite.locX = Map.levelToLocX(sprite.x)			
-        elseif setup.locX then
-            sprite.levelPosX = Map.locToLevelPosX(setup.locX)			
-            sprite.locX = setup.locX			
-        else
-            sprite.levelPosX = sprite.x			
-            sprite.locX = Map.levelToLocX(sprite.x)
-        end
-        if setup.levelPosY then
-            sprite.levelPosY = setup.levelPosY
-            sprite.locY = Map.levelToLocY(sprite.y)
-        elseif setup.locY then
-            sprite.levelPosY = Map.locToLevelPosX(setup.locY)
-            sprite.locY = setup.locY
-        else
-            sprite.levelPosY = sprite.y
-            sprite.locY = Map.levelToLocY(sprite.y)
-        end
-        local isoPos = Map.isoTransform2(sprite.levelPosX, sprite.levelPosY)
-        sprite.x = isoPos[1]
-        sprite.y = isoPos[2]
-    else
-        if setup.levelWidth then
-            sprite.levelWidth = setup.levelWidth
-            sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
-        else
-            sprite.levelWidth = sprite.width
-        end
-        if setup.levelHeight then
-            sprite.levelHeight = setup.levelHeight
-            sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
-        else
-            sprite.levelHeight = sprite.height
-        end
-        if setup.levelPosX then
-            sprite.x = setup.levelPosX			
-            sprite.locX = Map.levelToLocX(sprite.x)			
-        elseif setup.locX then
-            sprite.x = Map.locToLevelPosX(setup.locX)			
-            sprite.locX = setup.locX			
-        else
-            sprite.locX = MaplevelToLocX(sprite.x)	
-        end
-        if setup.levelPosY then
-            sprite.y = setup.levelPosY
-            sprite.locY = Map.levelToLocY(sprite.y)
-        elseif setup.locY then
-            sprite.y = Map.locToLevelPosX(setup.locY)
-            sprite.locY = setup.locY
-        else
-            sprite.locY = Map.levelToLocY(sprite.y)
-        end
-        sprite.levelPosX = sprite.x
-        sprite.levelPosY = sprite.y
-    end
-    sprite.lightingListeners = {}
-    sprite.addLightingListener = function(self, name, listener)
-        sprite.lightingListeners[name] = true
-        sprite:addEventListener(name, listener)
-    end
-    sprite.addLight = function(light)
-        if Camera.enableLighting then
-            sprite.light = light
-            sprite.light.created = true
-            if not sprite.light.id then
-                sprite.light.id = Light.lightIDs
-            end
-            Light.lightIDs = Light.lightIDs + 1
-            
-            if not sprite.light.maxRange then
-                local maxRange = sprite.light.range[1]
-                for l = 1, 3, 1 do
-                    if sprite.light.range[l] > maxRange then
-                        maxRange = sprite.light.range[l]
-                    end
-                end
-                sprite.light.maxRange = maxRange
-            end
-            
-            if not sprite.light.levelPosX then
-                sprite.light.levelPosX = sprite.levelPosX
-                sprite.light.levelPosY = sprite.levelPosY
-            end
-            
-            if not sprite.light.alternatorCounter then
-                sprite.light.alternatorCounter = 1
-            end
-            
-            if sprite.light.rays then
-                sprite.light.areaIndex = 1
-            end
-            
-            if sprite.light.layerRelative then
-                sprite.light.layer = sprite.layer + sprite.light.layerRelative
-                if sprite.light.layer < 1 then
-                    sprite.light.layer = 1
-                end
-                if sprite.light.layer > #Map.map.layers then
-                    sprite.light.layer = #Map.map.layers
-                end
-            end				
-            
-            if not sprite.light.layer then
-                sprite.light.layer = sprite.layer
-            end
-            sprite.light.level = sprite.level
-            sprite.light.dynamic = true
-            sprite.light.area = {}
-            sprite.light.sprite = sprite
-            Map.map.lights[sprite.light.id] = sprite.light
-        end
-    end
-    sprite.removeLight = function()
-        if sprite.light.rays then
-            sprite.light.areaIndex = 1
-        end
-        
-        local length = #sprite.light.area
-        for i = length, 1, -1 do
-            local locX = sprite.light.area[i][1]
-            local locY = sprite.light.area[i][2]
-            sprite.light.area[i] = nil
-            
-            if Camera.worldWrapX then
-                if locX < 1 - Map.map.locOffsetX then
-                    locX = locX + Map.map.width
-                end
-                if locX > Map.map.width - Map.map.locOffsetX then
-                    locX = locX - Map.map.width
-                end
-            end
-            if Camera.worldWrapY then
-                if locY < 1 - Map.map.locOffsetY then
-                    locY = locY + Map.map.height
-                end
-                if locY > Map.map.height - Map.map.locOffsetY then
-                    locY = locY - Map.map.height
-                end
-            end
-            if sprite.light.layer then
-                if Map.map.layers[sprite.light.layer].lighting[locX] and Map.map.layers[sprite.light.layer].lighting[locX][locY] then
-                    Map.map.layers[sprite.light.layer].lighting[locX][locY][sprite.light.id] = nil
-                    Map.map.lightToggle[locX][locY] = tonumber(system.getTimer())
-                end	
-            end
-        end
-        Map.map.lights[sprite.light.id] = nil
-        sprite.light = nil
-    end		
-    if Camera.layerWrapX[i] and (sprite.wrapX == nil or sprite.wrapX == true) then
-        while sprite.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) do
-            sprite.levelPosX = sprite.levelPosX + Map.map.layers[i].width * Map.map.tilewidth
-        end
-        while sprite.levelPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) do
-            sprite.levelPosX = sprite.levelPosX - Map.map.layers[i].width * Map.map.tilewidth
-        end		
-        if cameraX - sprite.x < Map.map.layers[i].width * Map.map.tilewidth / -2 then
-            --wrap around to the left
-            sprite.x = sprite.x - Map.map.layers[i].width * Map.map.tilewidth
-        elseif cameraX - sprite.x > Map.map.layers[i].width * Map.map.tilewidth / 2 then
-            --wrap around to the right
-            sprite.x = sprite.x + Map.map.layers[i].width * Map.map.tilewidth
-        end
-    end		
-    if Camera.layerWrapY[i] and (sprite.wrapY == nil or sprite.wrapY == true) then
-        while sprite.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
-            sprite.levelPosY = sprite.levelPosY + Map.map.layers[i].height * Map.map.tileheight
-        end
-        while sprite.levelPosY > Map.map.layers[i].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) do
-            sprite.levelPosY = sprite.levelPosY - Map.map.layers[i].height * Map.map.tileheight
-        end		
-        if cameraY - sprite.y < Map.map.layers[i].height * Map.map.tileheight / -2 then
-            --wrap around to the left
-            sprite.y = sprite.y - Map.map.layers[i].height * Map.map.tileheight
-        elseif cameraY - sprite.y > Map.map.layers[i].height * Map.map.tileheight / 2 then
-            --wrap around to the right
-            sprite.y = sprite.y + Map.map.layers[i].height * Map.map.tileheight
-        end
-    end		
-    sprite.locX = math.ceil(sprite.levelPosX / Map.map.tilewidth)
-    sprite.locY = math.ceil(sprite.levelPosY / Map.map.tileheight)
-    if setup.offsetX then
-        sprite.offsetX = setup.offsetX
-        --sprite.anchorX = ((sprite.width / 2) - sprite.offsetX) / sprite.width
-        sprite.anchorX = (((sprite.levelWidth or sprite.width) / 2) - sprite.offsetX) / (sprite.levelWidth or sprite.width)
-    else
-        sprite.offsetX = 0
-    end
-    if setup.offsetY then
-        sprite.offsetY = setup.offsetY
-        --sprite.anchorY = ((sprite.height / 2) - sprite.offsetY) / sprite.height
-        sprite.anchorY = (((sprite.levelHeight or sprite.height) / 2) - sprite.offsetY) / (sprite.levelHeight or sprite.height)
-    else
-        sprite.offsetY = 0
-    end
-    if Map.map.orientation == Map.Type.Isometric then
-        if Map.isoSort == 1 then
-            Map.masterGroup[setup.layer][sprite.locX + sprite.locY - 1]:insert(sprite)
-            sprite.row = sprite.locX + sprite.locY - 1
-        else
-            Map.masterGroup[(sprite.locX + (sprite.level - 1)) + (sprite.locY + (sprite.level - 1)) - 1].layers[setup.layer]:insert(sprite)
-        end
-    else
-        Map.masterGroup[layer]:insert(sprite)
-    end	
-    
-    if setup.properties then
-        if not sprite.properties then
-            sprite.properties = {}
-        end
-        for key,value in pairs(setup.properties) do
-            sprite.properties[key] = value
-        end
-    end
-    
-    if setup.managePhysicsStates ~= nil then
-        sprite.managePhysicsStates = setup.managePhysicsStates
-    end
-    
-    return sprite		
-end
-
-return Sprites
-
-end
-end
-
-do
-local _ENV = _ENV
 package.preload[ "src.Screen" ] = function( ... ) local arg = _G.arg;
 local Screen = {}
 
@@ -555,8 +66,410 @@ end
 
 do
 local _ENV = _ENV
+package.preload[ "src.Camera" ] = function( ... ) local arg = _G.arg;
+local Camera = {}
+
+local Map = require("src.Map")
+local Screen = require("src.Screen")
+
+-----------------------------------------------------------
+
+Camera.McameraX, Camera.McameraY = 0, 0
+Camera.McameraLocX, Camera.McameraLocY = 0, 0
+
+Camera.cameraX = 0
+Camera.cameraY = 0
+Camera.cameraLocX = 0
+Camera.cameraLocY = 0
+Camera.constrainTop = {}
+Camera.constrainBottom = {}
+Camera.constrainLeft = {}
+Camera.constrainRight = {}
+Camera.refMove = false
+Camera.override = {}
+Camera.cameraOnComplete = {}	
+Camera.cameraFocus = nil
+Camera.isCameraMoving = {}
+Camera.deltaX = {}
+Camera.deltaY = {}
+Camera.maxZoom = 9999
+Camera.minZoom = -9999
+Camera.parallaxToggle = {}
+Camera.worldWrapX = false
+Camera.worldWrapY = false
+Camera.layerWrapX = {}
+Camera.layerWrapY = {}
+Camera.currentScale = nil
+Camera.deltaZoom = nil
+Camera.screen = {}		
+Camera.cullingMargin = {0, 0, 0, 0}
+Camera.touchScroll = { false, nil, nil, nil, nil, nil }
+Camera.pinchZoom = false
+Camera.enableLighting = false
+-----------------------------------------------------------
+
+Camera.enableTouchScroll = function()
+    Camera.touchScroll[1] = true
+    if ( Map.map.layers and not Camera.pinchZoom ) then
+        Map.masterGroup:addEventListener("touch", Camera.touchScrollPinchZoom)
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.enablePinchZoom = function()
+    Camera.pinchZoom = true
+    if ( Map.map.layers and not Camera.touchScroll[1] ) then
+        Map.masterGroup:addEventListener("touch", Camera.touchScrollPinchZoom)
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.disableTouchScroll = function()
+    Camera.touchScroll[1] = false
+    if ( Map.map.layers and not Camera.pinchZoom ) then
+        Map.masterGroup:removeEventListener("touch", Camera.touchScrollPinchZoom)
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.disablePinchZoom = function()
+    Camera.pinchZoom = false
+    if ( Map.map.layers and not Camera.touchScroll[1] ) then
+        Map.masterGroup:removeEventListener("touch", Camera.touchScrollPinchZoom)
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.toggleWorldWrapX = function(command)
+    if command == true or command == false then
+        Camera.worldWrapX = command
+    else 
+        if Camera.worldWrapX then
+            Camera.worldWrapX = false
+        elseif not Camera.worldWrapX then
+            Camera.worldWrapX = true
+        end
+    end
+    if Map.map.properties then
+        for i = 1, #Map.map.layers, 1 do
+            Camera.layerWrapX[i] = Camera.worldWrapX
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.toggleWorldWrapY = function(command)
+    if command == true or command == false then
+        Camera.worldWrapY = command
+    else
+        if Camera.worldWrapY then
+            Camera.worldWrapY = false
+        elseif not Camera.worldWrapY then
+            Camera.worldWrapY = true
+        end
+    end
+    if Map.map.properties then
+        for i = 1, #Map.map.layers, 1 do
+            Camera.layerWrapY[i] = Camera.worldWrapY
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.easingHelper = function(distance, frames, kind)
+    local frameLength = display.fps
+    local move = {}
+    local total = 0
+    if not kind then
+        kind = easing.linear
+    end		
+    for i = 1, frames, 1 do
+        move[i] = kind((i - 1) * frameLength, frameLength * frames, 0, 1000)
+    end		
+    local move2 = {}
+    local total2 = 0
+    for i = 1, frames, 1 do
+        if i < frames then
+            move2[i] = move[i + 1] - move[i]
+        else
+            move2[i] = 1000 - move[i]
+        end
+        total2 = total2 + move2[i]
+    end
+    local mod2 = distance / total2
+    for i = 1, frames, 1 do
+        move2[i] = move2[i] * mod2
+    end	
+    return move2
+end
+
+-----------------------------------------------------------
+
+Camera.setCameraFocus = function(object, offsetX, offsetY)
+    if object then
+        Camera.cameraFocus = object
+        Camera.cameraFocus.cameraOffsetX = {}
+        Camera.cameraFocus.cameraOffsetY = {}
+        for i = 1, #Map.map.layers, 1 do
+            Camera.cameraFocus.cameraOffsetX[i] = offsetX or 0
+            Camera.cameraFocus.cameraOffsetY[i] = offsetY or 0
+        end
+    else
+        Camera.cameraFocus = nil
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.zoom = function(scale, time, easing)
+    if not scale and not time then
+        if Camera.deltaZoom then
+            return true
+        end
+    else
+        Camera.currentScale = Map.masterGroup.xScale
+        local distance = Camera.currentScale - scale
+        time = math.ceil(time / Map.frameTime)
+        if not time or time < 1 then
+            time = 1
+        end
+        local delta = Camera.easingHelper(distance, time, easing)
+        Camera.deltaZoom = delta
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.getCamera = function(layer)
+    if Map.map.orientation == Map.Type.Isometric then
+        if layer then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
+            local isoPos = Map.isoUntransform2(cameraX, cameraY)
+            cameraX = isoPos[1]
+            cameraY = isoPos[2]
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+            return {levelPosX = cameraX, 
+                levelPosY = cameraY, 
+                locX = cameraLocX, 
+            locY = cameraLocY}
+        else
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+            local isoPos = Map.isoUntransform2(Camera.McameraX, Camera.McameraY)
+            Camera.McameraX = isoPos[1]
+            Camera.McameraY = isoPos[2]
+            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
+            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
+            return {levelPosX = Camera.McameraX, 
+                levelPosY = Camera.McameraY, 
+                locX = Camera.McameraLocX, 
+            locY = Camera.McameraLocY}
+        end
+    else
+        if layer then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+            return {levelPosX = cameraX, 
+                levelPosY = cameraY, 
+                locX = cameraLocX, 
+            locY = cameraLocY}
+        else
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
+            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
+            return {levelPosX = Camera.McameraX, 
+                levelPosY = Camera.McameraY, 
+                locX = Camera.McameraLocX, 
+            locY = Camera.McameraLocY}
+        end
+    end
+end
+
+
+-----------------------------------------------------------
+
+Camera.moveCameraTo = function(params)
+    local check = true
+    for i = 1, #Map.map.layers, 1 do
+        if i == params.layer or not params.layer then
+            if Camera.isCameraMoving[i] then
+                check = false
+            else
+                if params.disableParallax then
+                    Camera.parallaxToggle[i] = false
+                else
+                    params.disableParallax = false
+                end
+                Camera.cameraOnComplete[i] = false
+            end
+        end
+    end		
+    if check and not params.layer then
+        Camera.refMove = true
+        Camera.cameraOnComplete[1] = params.onComplete
+    end
+    for i = 1, #Map.map.layers, 1 do
+        if (i == params.layer or not params.layer) and check then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)	
+            
+            if not params.time or params.time < 1 then
+                params.time = 1
+            end
+            local time = math.ceil(params.time / Map.frameTime)
+            local levelPosX = params.levelPosX
+            local levelPosY = params.levelPosY
+            if params.sprite then
+                if params.sprite.levelPosX then
+                    levelPosX = params.sprite.levelPosX + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
+                    levelPosY = params.sprite.levelPosY + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
+                else
+                    levelPosX = params.sprite.x + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
+                    levelPosY = params.sprite.y + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
+                end
+            end
+            if params.locX then
+                levelPosX = params.locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
+            end
+            if params.locY then
+                levelPosY = params.locY * Map.map.tileheight - (Map.map.tileheight / 2)
+            end				
+            
+            if not levelPosX then
+                levelPosX = cameraX
+            end
+            if not levelPosY then
+                levelPosY = cameraY
+            end
+            
+            if not Camera.layerWrapX[i] then
+                endX = levelPosX
+                distanceX = endX - cameraX
+                Camera.deltaX[i] = {}
+                Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+            else
+                local tempPosX = levelPosX
+                if tempPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) then
+                    tempPosX = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
+                elseif tempPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
+                    tempPosX = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
+                end			
+                local tempPosX2 = tempPosX
+                if tempPosX > cameraX then
+                    tempPosX2 = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
+                elseif tempPosX < cameraX then
+                    tempPosX2 = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
+                end			
+                distanceXAcross = math.abs(cameraX - tempPosX)
+                distanceXWrap = math.abs(cameraX - tempPosX2)
+                if distanceXWrap < distanceXAcross then
+                    if tempPosX > cameraX then
+                        Map.masterGroup[i].x = (cameraX + Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
+                    elseif tempPosX < cameraX then
+                        Map.masterGroup[i].x = (cameraX - Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
+                    end
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                    endX = tempPosX
+                    distanceX = endX - cameraX
+                    Camera.deltaX[i] = {}
+                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+                else
+                    endX = levelPosX
+                    distanceX = endX - cameraX
+                    Camera.deltaX[i] = {}
+                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+                end
+            end				
+            if not Camera.layerWrapY[i] then
+                endY = levelPosY
+                distanceY = endY - cameraY
+                Camera.deltaY[i] = {}
+                Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+            else
+                local tempPosY = levelPosY
+                if tempPosY > Map.map.layers[i].height * Map.map.tileheight then
+                    tempPosY = tempPosY - Map.map.layers[i].height * Map.map.tileheight
+                elseif tempPosY < 1 then
+                    tempPosY = tempPosY + Map.map.layers[i].height * Map.map.tileheight
+                end			
+                local tempPosY2 = tempPosY
+                if tempPosY > cameraY then
+                    tempPosY2 = tempPosY - Map.map.layers[i].height * Map.map.tileheight
+                elseif tempPosY < cameraY then
+                    tempPosY2 = tempPosY + Map.map.layers[i].height * Map.map.tileheight
+                end					
+                distanceYAcross = math.abs(cameraY - tempPosY)
+                distanceYWrap = math.abs(cameraY - tempPosY2)
+                if distanceYWrap < distanceYAcross then
+                    if tempPosY > cameraY then
+                        Map.masterGroup[i].y = (cameraY + Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
+                    elseif tempPosY < cameraY then
+                        Map.masterGroup[i].y = (cameraY - Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
+                    end
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                    endY = tempPosY
+                    distanceY = endY - cameraY
+                    Camera.deltaY[i] = {}
+                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+                else
+                    endY = levelPosY
+                    distanceY = endY - cameraY
+                    Camera.deltaY[i] = {}
+                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+                end
+            end				
+            Camera.isCameraMoving[i] = true
+            if not Camera.refMove then
+                Camera.cameraOnComplete[i] = params.onComplete
+            end
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.removeCameraConstraints = function(layer)
+    if layer then
+        constrainLeft[layer] = nil
+        constrainTop[layer] = nil
+        constrainRight[layer] = nil
+        constrainBottom[layer] = nil
+        Map.masterGroup[layer].vars.constrainLayer = nil
+    else
+        for i = 1, #Map.map.layers, 1 do
+            constrainLeft[i] = nil
+            constrainTop[i] = nil
+            constrainRight[i] = nil
+            constrainBottom[i] = nil
+        end
+    end
+end
+
+return Camera
+end
+end
+
+do
+local _ENV = _ENV
 package.preload[ "src.Core" ] = function( ... ) local arg = _G.arg;
 local Core = {}
+
+local json = require("json")
 
 local Camera = require("src.Camera")
 local Map = require("src.Map")
@@ -565,12 +478,14 @@ local Sprites = require("src.Sprites")
 local PhysicsData = require("src.PhysicsData")
 local Light = require("src.Light")
 
-
 Core.tileAnimsFrozen = false
 Core.syncData = {}
 
 local isMoving = {}
 local count = 0
+
+--STANDARD ISO VARIABLES
+local R45 = math.rad(45)
 
 --LISTENERS
 local propertyListeners = {}
@@ -6900,7 +6815,803 @@ Core.addObjectDrawListener = function(name, listener)
     Map.masterGroup:addEventListener(name, listener)
 end
 
+-----------------------------------------------------------
+
+Core.refresh = function()
+    
+    Map.setMapProperties(Map.map.properties)
+    for i = 1, #Map.map.layers, 1 do
+        Core.setLayerProperties(i, Map.map.layers[i].properties)
+    end
+    for i = 1, #Map.map.layers, 1 do
+        for locX = Map.masterGroup[i].vars.camera[1], Map.masterGroup[i].vars.camera[3], 1 do
+            for locY = Map.masterGroup[i].vars.camera[2], Map.masterGroup[i].vars.camera[4], 1 do
+                --print(locX, locY)
+                Core.updateTile({locX = locX, locY = locY, layer = i, tile = -1})
+                cullLargeTile(locX, locY, i, true)
+            end
+        end
+        Map.masterGroup[i].vars.camera = nil
+    end
+    Core.update()
+    --PROCESS ANIMATION DATA
+    for i = 1, #Map.map.tilesets, 1 do
+        if Map.map.tilesets[i].tileproperties then
+            for key,value in pairs(Map.map.tilesets[i].tileproperties) do
+                for key2,value2 in pairs(Map.map.tilesets[i].tileproperties[key]) do
+                    if key2 == "animFrames" then
+                        local tempFrames
+                        if type(value2) == "string" then
+                            Map.map.tilesets[i].tileproperties[key]["animFrames"] = json.decode(value2)
+                            tempFrames = json.decode(value2)
+                        else
+                            Map.map.tilesets[i].tileproperties[key]["animFrames"] = value2
+                            tempFrames = value2
+                        end
+                        if Map.map.tilesets[i].tileproperties[key]["animFrameSelect"] == "relative" then
+                            local frames = {}
+                            for f = 1, #tempFrames, 1 do
+                                frames[f] = (tonumber(key) + 1) + tempFrames[f]
+                            end
+                            Map.map.tilesets[i].tileproperties[key]["sequenceData"] = {
+                                name="null",
+                                frames=frames,
+                                time = tonumber(Map.map.tilesets[i].tileproperties[key]["animDelay"]),
+                                loopCount = 0
+                            }
+                        elseif Map.map.tilesets[i].tileproperties[key]["animFrameSelect"] == "absolute" then
+                            Map.map.tilesets[i].tileproperties[key]["sequenceData"] = {
+                                name="null",
+                                frames=tempFrames,
+                                time = tonumber(Map.map.tilesets[i].tileproperties[key]["animDelay"]),
+                                loopCount = 0
+                            }
+                        end
+                        Map.map.tilesets[i].tileproperties[key]["animSync"] = tonumber(Map.map.tilesets[i].tileproperties[key]["animSync"]) or 1
+                        if not Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ] then
+                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ] = {}
+                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].time = (Map.map.tilesets[i].tileproperties[key]["sequenceData"].time / #Map.map.tilesets[i].tileproperties[key]["sequenceData"].frames) / Map.frameTime
+                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].currentFrame = 1
+                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].counter = Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].time
+                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].frames = Map.map.tilesets[i].tileproperties[key]["sequenceData"].frames
+                        end
+                    end
+                    if key2 == "shape" then
+                        if type(value2) == "string" then
+                            Map.map.tilesets[i].tileproperties[key]["shape"] = json.decode(value2)
+                        else
+                            Map.map.tilesets[i].tileproperties[key]["shape"] = value2
+                        end
+                    end
+                    if key2 == "filter" then
+                        if type(value2) == "string" then
+                            Map.map.tilesets[i].tileproperties[key]["filter"] = json.decode(value2)
+                        else
+                            Map.map.tilesets[i].tileproperties[key]["filter"] = value2
+                        end
+                    end
+                    if key2 == "opacity" then					
+                        frameIndex = tonumber(key) + (Map.map.tilesets[i].firstgid - 1) + 1
+                        
+                        if not Map.map.lightingData[frameIndex] then
+                            Map.map.lightingData[frameIndex] = {}
+                        end
+                        if type(value2) == "string" then
+                            Map.map.lightingData[frameIndex].opacity = json.decode(value2)
+                        else
+                            Map.map.lightingData[frameIndex].opacity = value2
+                        end
+                    end
+                end
+            end
+        end			
+        if not Map.map.tilesets[i].properties then
+            Map.map.tilesets[i].properties = {}
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Core.setLayerProperties = function(layer, t)
+    if not layer then
+        print("ERROR(setLayerProperties): No layer specified.")
+    end
+    local lyr = layer
+    if lyr > #Map.map.layers then
+        print("Warning(setLayerProperties): The layer index is too high. Defaulting to top layer.")
+        lyr = #Map.map.layers
+    elseif lyr < 1 then
+        print("Warning(setLayerProperties): The layer index is too low. Defaulting to layer 1.")
+        lyr = 1
+    end
+    local i = lyr
+    Map.map.layers[lyr].properties = t
+    if not Map.map.layers[i].properties then
+        Map.map.layers[i].properties = {}
+        Map.map.layers[i].properties.level = "1"
+        Map.map.layers[i].properties.scaleX = 1
+        Map.map.layers[i].properties.scaleY = 1
+        Map.map.layers[i].properties.parallaxX = 1
+        Map.map.layers[i].properties.parallaxY = 1
+    else
+        if not Map.map.layers[i].properties.level then
+            Map.map.layers[i].properties.level = "1"
+        end
+        if Map.map.layers[i].properties.scale then
+            Map.map.layers[i].properties.scaleX = Map.map.layers[i].properties.scale
+            Map.map.layers[i].properties.scaleY = Map.map.layers[i].properties.scale
+        else
+            if not Map.map.layers[i].properties.scaleX then
+                Map.map.layers[i].properties.scaleX = 1
+            end
+            if not Map.map.layers[i].properties.scaleY then
+                Map.map.layers[i].properties.scaleY = 1
+            end
+        end
+    end
+    Map.map.layers[i].properties.scaleX = tonumber(Map.map.layers[i].properties.scaleX)
+    Map.map.layers[i].properties.scaleY = tonumber(Map.map.layers[i].properties.scaleY)
+    if Map.map.layers[lyr].properties.parallax then
+        Map.map.layers[lyr].parallaxX = Map.map.layers[lyr].properties.parallax / Map.map.layers[lyr].properties.scaleX
+        Map.map.layers[lyr].parallaxY = Map.map.layers[lyr].properties.parallax / Map.map.layers[lyr].properties.scaleY
+    else
+        if Map.map.layers[lyr].properties.parallaxX then
+            Map.map.layers[lyr].parallaxX = Map.map.layers[lyr].properties.parallaxX / Map.map.layers[lyr].properties.scaleX
+        else
+            Map.map.layers[lyr].parallaxX = 1
+        end
+        if Map.map.layers[lyr].properties.parallaxY then
+            Map.map.layers[lyr].parallaxY = Map.map.layers[lyr].properties.parallaxY / Map.map.layers[lyr].properties.scaleY
+        else
+            Map.map.layers[lyr].parallaxY = 1
+        end
+    end
+    --CHECK REFERENCE LAYER
+    if Map.refLayer == lyr then
+        if Map.map.layers[lyr].parallaxX ~= 1 or Map.map.layers[lyr].parallaxY ~= 1 then
+            for i = 1, #Map.map.layers, 1 do
+                if Map.map.layers[i].parallaxX == 1 and Map.map.layers[i].parallaxY == 1 then
+                    Map.refLayer = i
+                    break
+                end
+            end
+            if not Map.refLayer then
+                Map.refLayer = 1
+            end
+        end
+    end
+    
+    --DETECT LAYER WRAP
+    Camera.layerWrapX[lyr] = Camera.worldWrapX
+    Camera.layerWrapY[lyr] = Camera.worldWrapY
+    if Map.map.layers[lyr].properties.wrap then
+        if Map.map.layers[lyr].properties.wrap == "true" then
+            Camera.layerWrapX[lyr] = true
+            Camera.layerWrapY[lyr] = true
+        elseif Map.map.layers[lyr].properties.wrap == "false" then
+            Camera.layerWrapX[lyr] = false
+            Camera.layerWrapY[lyr] = false
+        end
+    end
+    if Map.map.layers[lyr].properties.wrapX then
+        if Map.map.layers[lyr].properties.wrapX == "true" then
+            Camera.layerWrapX[lyr] = true
+        elseif Map.map.layers[lyr].properties.wrapX == "false" then
+            Camera.layerWrapX[lyr] = false
+        end
+    end
+    if Map.map.layers[lyr].properties.wrapY then
+        if Map.map.layers[lyr].properties.wrapY == "true" then
+            Camera.layerWrapY[lyr] = true
+        elseif Map.map.layers[lyr].properties.wrapY == "false" then
+            Camera.layerWrapX[lyr] = false
+        end
+    end
+    
+    --LOAD PHYSICS
+    if PhysicsData.enablePhysicsByLayer == 1 then
+        if Map.map.layers[i].properties.physics == "true" then
+            PhysicsData.enablePhysics[i] = true
+            PhysicsData.layer[i] = {}
+            PhysicsData.layer[i].defaultDensity = PhysicsData.defaultDensity
+            PhysicsData.layer[i].defaultFriction = PhysicsData.defaultFriction
+            PhysicsData.layer[i].defaultBounce = PhysicsData.defaultBounce
+            PhysicsData.layer[i].defaultBodyType = PhysicsData.defaultBodyType
+            PhysicsData.layer[i].defaultShape = PhysicsData.defaultShape
+            PhysicsData.layer[i].defaultRadius = PhysicsData.defaultRadius
+            PhysicsData.layer[i].defaultFilter = PhysicsData.defaultFilter
+            PhysicsData.layer[i].isActive = true
+            PhysicsData.layer[i].isAwake = true
+            
+            if Map.map.layers[i].properties.density then
+                PhysicsData.layer[i].defaultDensity = Map.map.layers[i].properties.density
+            end
+            if Map.map.layers[i].properties.friction then
+                PhysicsData.layer[i].defaultFriction = Map.map.layers[i].properties.friction
+            end
+            if Map.map.layers[i].properties.bounce then
+                PhysicsData.layer[i].defaultBounce = Map.map.layers[i].properties.bounce
+            end
+            if Map.map.layers[i].properties.bodyType then
+                PhysicsData.layer[i].defaultBodyType = Map.map.layers[i].properties.bodyType
+            end
+            if Map.map.layers[i].properties.shape then
+                if type(Map.map.layers[i].properties.shape) == "string" then
+                    PhysicsData.layer[i].defaultShape = json.decode(Map.map.layers[i].properties.shape)
+                else
+                    PhysicsData.layer[i].defaultShape = Map.map.layers[i].properties.shape
+                end
+            end
+            if Map.map.layers[i].properties.radius then
+                PhysicsData.layer[i].defaultRadius = Map.map.layers[i].properties.radius
+            end
+            if Map.map.layers[i].properties.groupIndex or Map.map.layers[i].properties.categoryBits or Map.map.layers[i].properties.maskBits then
+                PhysicsData.layer[i].defaultFilter = {categoryBits = tonumber(Map.map.layers[i].properties.categoryBits),
+                    maskBits = tonumber(Map.map.layers[i].properties.maskBits),
+                    groupIndex = tonumber(Map.map.layers[i].properties.groupIndex)
+                }
+            end
+        end
+    elseif PhysicsData.enablePhysicsByLayer == 2 then
+        PhysicsData.enablePhysics[i] = true
+        PhysicsData.layer[i] = {}
+        PhysicsData.layer[i].defaultDensity = PhysicsData.defaultDensity
+        PhysicsData.layer[i].defaultFriction = PhysicsData.defaultFriction
+        PhysicsData.layer[i].defaultBounce = PhysicsData.defaultBounce
+        PhysicsData.layer[i].defaultBodyType = PhysicsData.defaultBodyType
+        PhysicsData.layer[i].defaultShape = PhysicsData.defaultShape
+        PhysicsData.layer[i].defaultRadius = PhysicsData.defaultRadius
+        PhysicsData.layer[i].defaultFilter = PhysicsData.defaultFilter
+        PhysicsData.layer[i].isActive = true
+        PhysicsData.layer[i].isAwake = true
+        
+        if Map.map.layers[i].properties.density then
+            PhysicsData.layer[i].defaultDensity = Map.map.layers[i].properties.density
+        end
+        if Map.map.layers[i].properties.friction then
+            PhysicsData.layer[i].defaultFriction = Map.map.layers[i].properties.friction
+        end
+        if Map.map.layers[i].properties.bounce then
+            PhysicsData.layer[i].defaultBounce = Map.map.layers[i].properties.bounce
+        end
+        if Map.map.layers[i].properties.bodyType then
+            PhysicsData.layer[i].defaultBodyType = Map.map.layers[i].properties.bodyType
+        end
+        if Map.map.layers[i].properties.shape then
+            if type(Map.map.layers[i].properties.shape) == "string" then
+                PhysicsData.layer[i].defaultShape = json.decode(Map.map.layers[i].properties.shape)
+            else
+                PhysicsData.layer[i].defaultShape = Map.map.layers[i].properties.shape
+            end
+        end
+        if Map.map.layers[i].properties.radius then
+            PhysicsData.layer[i].defaultRadius = Map.map.layers[i].properties.radius
+        end
+        if Map.map.layers[i].properties.groupIndex or Map.map.layers[i].properties.categoryBits or Map.map.layers[i].properties.maskBits then
+            PhysicsData.layer[i].defaultFilter = {categoryBits = tonumber(Map.map.layers[i].properties.categoryBits),
+                maskBits = tonumber(Map.map.layers[i].properties.maskBits),
+                groupIndex = tonumber(Map.map.layers[i].properties.groupIndex)
+            }
+        end			
+    end
+    
+    --LIGHTING
+    if Map.map.properties then
+        if Map.map.properties.lightingStyle then
+            local levelLighting = {}
+            for i = 1, Map.map.numLevels, 1 do
+                levelLighting[i] = {}
+            end
+            if not Map.map.properties.lightRedStart then
+                Map.map.properties.lightRedStart = "1"
+            end
+            if not Map.map.properties.lightGreenStart then
+                Map.map.properties.lightGreenStart = "1"
+            end
+            if not Map.map.properties.lightBlueStart then
+                Map.map.properties.lightBlueStart = "1"
+            end
+            if Map.map.properties.lightingStyle == "diminish" then
+                local rate = tonumber(Map.map.properties.lightRate)
+                levelLighting[Map.map.numLevels].red = tonumber(Map.map.properties.lightRedStart)
+                levelLighting[Map.map.numLevels].green = tonumber(Map.map.properties.lightGreenStart)
+                levelLighting[Map.map.numLevels].blue = tonumber(Map.map.properties.lightBlueStart)
+                for i = Map.map.numLevels - 1, 1, -1 do
+                    levelLighting[i].red = levelLighting[Map.map.numLevels].red - (rate * (Map.map.numLevels - i))
+                    if levelLighting[i].red < 0 then
+                        levelLighting[i].red = 0
+                    end
+                    levelLighting[i].green = levelLighting[Map.map.numLevels].green - (rate * (Map.map.numLevels - i))
+                    if levelLighting[i].green < 0 then
+                        levelLighting[i].green = 0
+                    end
+                    levelLighting[i].blue = levelLighting[Map.map.numLevels].blue - (rate * (Map.map.numLevels - i))
+                    if levelLighting[i].blue < 0 then
+                        levelLighting[i].blue = 0
+                    end
+                end
+            end
+            for i = 1, #Map.map.layers, 1 do
+                if Map.map.layers[i].properties.lightRed then
+                    Map.map.layers[i].redLight = tonumber(Map.map.layers[i].properties.lightRed)
+                else
+                    Map.map.layers[i].redLight = levelLighting[Map.map.layers[i].properties.level].red
+                end
+                if Map.map.layers[i].properties.lightGreen then
+                    Map.map.layers[i].greenLight = tonumber(Map.map.layers[i].properties.lightGreen)
+                else
+                    Map.map.layers[i].greenLight = levelLighting[Map.map.layers[i].properties.level].green
+                end
+                if Map.map.layers[i].properties.lightBlue then
+                    Map.map.layers[i].blueLight = tonumber(Map.map.layers[i].properties.lightBlue)
+                else
+                    Map.map.layers[i].blueLight = levelLighting[Map.map.layers[i].properties.level].blue
+                end
+            end
+        else
+            for i = 1, #Map.map.layers, 1 do
+                Map.map.layers[i].redLight = 1
+                Map.map.layers[i].greenLight = 1
+                Map.map.layers[i].blueLight = 1
+            end
+        end
+    end
+end
+
 return Core
+end
+end
+
+do
+local _ENV = _ENV
+package.preload[ "src.Sprites" ] = function( ... ) local arg = _G.arg;
+local Sprites = {}
+
+local Camera = require("src.Camera")
+local Map = require("src.Map")
+local Light = require("src.Light")
+
+Sprites.sprites = {}
+
+Sprites.movingSprites = {}
+
+Sprites.tempObjects = {}
+
+Sprites.holdSprite = nil
+
+Sprites.enableSpriteSorting = false
+
+-----------------------------------------------------------
+
+Sprites.removeSprite = function(sprite, destroyObject)
+    if sprite.light then
+        sprite.removeLight()
+    end
+    if Camera.cameraFocus == sprite then
+        Camera.cameraFocus = nil
+    end
+    if Light.pointLightSource == sprite then
+        Light.pointLightSource = nil
+    end
+    if Sprites.movingSprites[sprite] then
+        Sprites.movingSprites[sprite] = nil
+    end
+    if sprite.name then
+        if Sprites.sprites[sprite.name] then
+            Sprites.sprites[sprite.name] = nil
+        end
+    end
+    if destroyObject == nil or destroyObject == true then
+        sprite:removeSelf()
+        sprite = nil
+    else
+        local stage = display.getCurrentStage()
+        stage:insert(sprite)
+    end
+end
+
+-----------------------------------------------------------
+
+Sprites.addSprite = function(sprite, setup)
+    local layer
+    if setup.level then
+        layer = Map.spriteLayers[setup.level]
+        if not layer then
+            --print("Warning(addSprite): No Sprite Layer at level "..setup.level..". Defaulting to "..Map.refLayer..".")
+            for i = 1, #Map.map.layers, 1 do
+                if Map.map.layers[i].properties.level == setup.level then
+                    layer = i
+                    break
+                end
+            end
+            if not layer then
+                layer = Map.refLayer
+            end
+        end
+    elseif setup.layer then
+        layer = setup.layer
+        if layer > #Map.map.layers then
+            print("Warning(addSprite): Layer out of bounds. Defaulting to "..Map.refLayer..".")
+            layer = Map.refLayer
+        end
+    else
+        if sprite.parent.vars then
+            layer = sprite.parent.vars.layer
+        else
+            --print("Warning(addSprite): You forgot to specify a Layer or level. Defaulting to "..Map.refLayer..".")
+            layer = Map.refLayer
+        end
+    end
+    
+    if setup.color then
+        sprite.color = setup.color
+    end
+    if sprite.lighting == nil then
+        if setup.lighting ~= nil then
+            sprite.lighting = setup.lighting
+        else
+            sprite.lighting = true
+        end
+    end
+    
+    if not setup.kind or setup.kind == "sprite" then
+        sprite.objType = 1
+        if sprite.lighting then
+            if not sprite.color then
+                sprite.color = {1, 1, 1}
+            end
+            local mL = Map.map.layers[setup.layer]
+            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
+        end
+    elseif setup.kind == "imageRect" then
+        sprite.objType = 2
+        if sprite.lighting then
+            if not sprite.color then
+                sprite.color = {1, 1, 1}
+            end
+            local mL = Map.map.layers[setup.layer]
+            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
+        end
+    elseif setup.kind == "group" then
+        sprite.objType = 3
+        if sprite.lighting then
+            local mL = Map.map.layers[setup.layer]
+            for i = 1, sprite.numChildren, 1 do
+                if sprite[i]._class then
+                    if sprite.color and not sprite[i].color then
+                        sprite[i].color = sprite.color
+                    end
+                    if not sprite[i].color then
+                        sprite[i].color = {1, 1, 1}
+                    end
+                    sprite[i]:setFillColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
+                end
+            end
+        end
+    elseif setup.kind == "vector" then
+        sprite.objType = 4
+        if sprite.lighting then
+            local mL = Map.map.layers[setup.layer]
+            for i = 1, sprite.numChildren, 1 do
+                if sprite[i]._class then
+                    if sprite.color and not sprite[i].color then
+                        sprite[i].color = sprite.color
+                    end
+                    if not sprite[i].color then
+                        sprite[i].color = {1, 1, 1}
+                    end
+                    sprite[i]:setStrokeColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
+                end
+            end
+        end
+    end
+    
+    if setup.followHeightMap then
+        sprite.followHeightMap = setup.followHeightMap
+    end
+    if setup.heightMap then
+        sprite.heightMap = setup.heightMap
+    end
+    if setup.offscreenPhysics then
+        sprite.offscreenPhysics = true
+    end
+    if Camera.enableLighting then
+        sprite.litBy = {}
+        sprite.prevLitBy = {}
+    end
+    local spriteName = sprite.name or setup.name
+    if not spriteName or spriteName == "" then
+        spriteName = ""..sprite.x.."_"..sprite.y.."_"..layer
+    end
+    if Sprites.sprites[spriteName] and Sprites.sprites[spriteName] ~= sprite then
+        local tempName = spriteName
+        local counter = 1
+        while Sprites.sprites[tempName] do
+            tempName = ""..spriteName..counter
+            counter = counter + 1
+        end
+        spriteName = tempName
+    end
+    sprite.name = spriteName
+    if not Sprites.sprites[spriteName] then
+        Sprites.sprites[spriteName] = sprite
+    end
+    sprite.park = false
+    if setup.park == true then
+        sprite.park = true
+    end
+    
+    if setup.sortSprite ~= nil then
+        sprite.sortSprite = setup.sortSprite
+    else
+        sprite.sortSprite = false
+    end
+    if setup.sortSpriteOnce ~= nil then
+        sprite.sortSpriteOnce = setup.sortSpriteOnce
+    end
+    if not sprite.constrainToMap then
+        sprite.constrainToMap = {true, true, true, true}
+    end
+    if setup.constrainToMap ~= nil then
+        sprite.constrainToMap = setup.constrainToMap
+    end
+    sprite.locX = nil
+    sprite.locY = nil
+    sprite.levelPosX = nil
+    sprite.levelPosY = nil
+    if setup.layer then
+        sprite.layer = setup.layer
+        sprite.level = Map.map.layers[setup.layer].properties.level
+    end
+    sprite.deltaX = {}
+    sprite.deltaY = {}
+    sprite.velX = nil
+    sprite.velY = nil
+    sprite.isMoving = false
+    if Map.map.orientation == Map.Type.Isometric then
+        if setup.levelWidth then
+            sprite.levelWidth = setup.levelWidth
+            if sprite.objType ~= 3 then
+                sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
+            end
+        else
+            sprite.levelWidth = sprite.width
+        end
+        if setup.levelHeight then
+            sprite.levelHeight = setup.levelHeight
+            if sprite.objType ~= 3 then
+                sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
+            end
+        else
+            sprite.levelHeight = sprite.height
+        end
+        if setup.levelPosX then
+            sprite.levelPosX = setup.levelPosX			
+            sprite.locX = Map.levelToLocX(sprite.x)			
+        elseif setup.locX then
+            sprite.levelPosX = Map.locToLevelPosX(setup.locX)			
+            sprite.locX = setup.locX			
+        else
+            sprite.levelPosX = sprite.x			
+            sprite.locX = Map.levelToLocX(sprite.x)
+        end
+        if setup.levelPosY then
+            sprite.levelPosY = setup.levelPosY
+            sprite.locY = Map.levelToLocY(sprite.y)
+        elseif setup.locY then
+            sprite.levelPosY = Map.locToLevelPosX(setup.locY)
+            sprite.locY = setup.locY
+        else
+            sprite.levelPosY = sprite.y
+            sprite.locY = Map.levelToLocY(sprite.y)
+        end
+        local isoPos = Map.isoTransform2(sprite.levelPosX, sprite.levelPosY)
+        sprite.x = isoPos[1]
+        sprite.y = isoPos[2]
+    else
+        if setup.levelWidth then
+            sprite.levelWidth = setup.levelWidth
+            sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
+        else
+            sprite.levelWidth = sprite.width
+        end
+        if setup.levelHeight then
+            sprite.levelHeight = setup.levelHeight
+            sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
+        else
+            sprite.levelHeight = sprite.height
+        end
+        if setup.levelPosX then
+            sprite.x = setup.levelPosX			
+            sprite.locX = Map.levelToLocX(sprite.x)			
+        elseif setup.locX then
+            sprite.x = Map.locToLevelPosX(setup.locX)			
+            sprite.locX = setup.locX			
+        else
+            sprite.locX = MaplevelToLocX(sprite.x)	
+        end
+        if setup.levelPosY then
+            sprite.y = setup.levelPosY
+            sprite.locY = Map.levelToLocY(sprite.y)
+        elseif setup.locY then
+            sprite.y = Map.locToLevelPosX(setup.locY)
+            sprite.locY = setup.locY
+        else
+            sprite.locY = Map.levelToLocY(sprite.y)
+        end
+        sprite.levelPosX = sprite.x
+        sprite.levelPosY = sprite.y
+    end
+    sprite.lightingListeners = {}
+    sprite.addLightingListener = function(self, name, listener)
+        sprite.lightingListeners[name] = true
+        sprite:addEventListener(name, listener)
+    end
+    sprite.addLight = function(light)
+        if Camera.enableLighting then
+            sprite.light = light
+            sprite.light.created = true
+            if not sprite.light.id then
+                sprite.light.id = Light.lightIDs
+            end
+            Light.lightIDs = Light.lightIDs + 1
+            
+            if not sprite.light.maxRange then
+                local maxRange = sprite.light.range[1]
+                for l = 1, 3, 1 do
+                    if sprite.light.range[l] > maxRange then
+                        maxRange = sprite.light.range[l]
+                    end
+                end
+                sprite.light.maxRange = maxRange
+            end
+            
+            if not sprite.light.levelPosX then
+                sprite.light.levelPosX = sprite.levelPosX
+                sprite.light.levelPosY = sprite.levelPosY
+            end
+            
+            if not sprite.light.alternatorCounter then
+                sprite.light.alternatorCounter = 1
+            end
+            
+            if sprite.light.rays then
+                sprite.light.areaIndex = 1
+            end
+            
+            if sprite.light.layerRelative then
+                sprite.light.layer = sprite.layer + sprite.light.layerRelative
+                if sprite.light.layer < 1 then
+                    sprite.light.layer = 1
+                end
+                if sprite.light.layer > #Map.map.layers then
+                    sprite.light.layer = #Map.map.layers
+                end
+            end				
+            
+            if not sprite.light.layer then
+                sprite.light.layer = sprite.layer
+            end
+            sprite.light.level = sprite.level
+            sprite.light.dynamic = true
+            sprite.light.area = {}
+            sprite.light.sprite = sprite
+            Map.map.lights[sprite.light.id] = sprite.light
+        end
+    end
+    sprite.removeLight = function()
+        if sprite.light.rays then
+            sprite.light.areaIndex = 1
+        end
+        
+        local length = #sprite.light.area
+        for i = length, 1, -1 do
+            local locX = sprite.light.area[i][1]
+            local locY = sprite.light.area[i][2]
+            sprite.light.area[i] = nil
+            
+            if Camera.worldWrapX then
+                if locX < 1 - Map.map.locOffsetX then
+                    locX = locX + Map.map.width
+                end
+                if locX > Map.map.width - Map.map.locOffsetX then
+                    locX = locX - Map.map.width
+                end
+            end
+            if Camera.worldWrapY then
+                if locY < 1 - Map.map.locOffsetY then
+                    locY = locY + Map.map.height
+                end
+                if locY > Map.map.height - Map.map.locOffsetY then
+                    locY = locY - Map.map.height
+                end
+            end
+            if sprite.light.layer then
+                if Map.map.layers[sprite.light.layer].lighting[locX] and Map.map.layers[sprite.light.layer].lighting[locX][locY] then
+                    Map.map.layers[sprite.light.layer].lighting[locX][locY][sprite.light.id] = nil
+                    Map.map.lightToggle[locX][locY] = tonumber(system.getTimer())
+                end	
+            end
+        end
+        Map.map.lights[sprite.light.id] = nil
+        sprite.light = nil
+    end		
+    if Camera.layerWrapX[i] and (sprite.wrapX == nil or sprite.wrapX == true) then
+        while sprite.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) do
+            sprite.levelPosX = sprite.levelPosX + Map.map.layers[i].width * Map.map.tilewidth
+        end
+        while sprite.levelPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) do
+            sprite.levelPosX = sprite.levelPosX - Map.map.layers[i].width * Map.map.tilewidth
+        end		
+        if cameraX - sprite.x < Map.map.layers[i].width * Map.map.tilewidth / -2 then
+            --wrap around to the left
+            sprite.x = sprite.x - Map.map.layers[i].width * Map.map.tilewidth
+        elseif cameraX - sprite.x > Map.map.layers[i].width * Map.map.tilewidth / 2 then
+            --wrap around to the right
+            sprite.x = sprite.x + Map.map.layers[i].width * Map.map.tilewidth
+        end
+    end		
+    if Camera.layerWrapY[i] and (sprite.wrapY == nil or sprite.wrapY == true) then
+        while sprite.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
+            sprite.levelPosY = sprite.levelPosY + Map.map.layers[i].height * Map.map.tileheight
+        end
+        while sprite.levelPosY > Map.map.layers[i].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) do
+            sprite.levelPosY = sprite.levelPosY - Map.map.layers[i].height * Map.map.tileheight
+        end		
+        if cameraY - sprite.y < Map.map.layers[i].height * Map.map.tileheight / -2 then
+            --wrap around to the left
+            sprite.y = sprite.y - Map.map.layers[i].height * Map.map.tileheight
+        elseif cameraY - sprite.y > Map.map.layers[i].height * Map.map.tileheight / 2 then
+            --wrap around to the right
+            sprite.y = sprite.y + Map.map.layers[i].height * Map.map.tileheight
+        end
+    end		
+    sprite.locX = math.ceil(sprite.levelPosX / Map.map.tilewidth)
+    sprite.locY = math.ceil(sprite.levelPosY / Map.map.tileheight)
+    if setup.offsetX then
+        sprite.offsetX = setup.offsetX
+        --sprite.anchorX = ((sprite.width / 2) - sprite.offsetX) / sprite.width
+        sprite.anchorX = (((sprite.levelWidth or sprite.width) / 2) - sprite.offsetX) / (sprite.levelWidth or sprite.width)
+    else
+        sprite.offsetX = 0
+    end
+    if setup.offsetY then
+        sprite.offsetY = setup.offsetY
+        --sprite.anchorY = ((sprite.height / 2) - sprite.offsetY) / sprite.height
+        sprite.anchorY = (((sprite.levelHeight or sprite.height) / 2) - sprite.offsetY) / (sprite.levelHeight or sprite.height)
+    else
+        sprite.offsetY = 0
+    end
+    if Map.map.orientation == Map.Type.Isometric then
+        if Map.isoSort == 1 then
+            Map.masterGroup[setup.layer][sprite.locX + sprite.locY - 1]:insert(sprite)
+            sprite.row = sprite.locX + sprite.locY - 1
+        else
+            Map.masterGroup[(sprite.locX + (sprite.level - 1)) + (sprite.locY + (sprite.level - 1)) - 1].layers[setup.layer]:insert(sprite)
+        end
+    else
+        Map.masterGroup[layer]:insert(sprite)
+    end	
+    
+    if setup.properties then
+        if not sprite.properties then
+            sprite.properties = {}
+        end
+        for key,value in pairs(setup.properties) do
+            sprite.properties[key] = value
+        end
+    end
+    
+    if setup.managePhysicsStates ~= nil then
+        sprite.managePhysicsStates = setup.managePhysicsStates
+    end
+    
+    return sprite		
+end
+
+return Sprites
+
 end
 end
 
@@ -9555,242 +10266,73 @@ end
 
 do
 local _ENV = _ENV
-package.preload[ "src.Xml" ] = function( ... ) local arg = _G.arg;
-local Xml = {}
-
------------------------------------------------------------
+package.preload[ "src.SaveMap" ] = function( ... ) local arg = _G.arg;
+local SaveMap = {}
 
 local json = require("json")
-
-local Map = require("src.Map")
-
------------------------------------------------------------
-
-Xml.data = nil
+local lfs = require("lfs")
 
 -----------------------------------------------------------
 
-Xml.ToXmlString = function(value)
-    value = string.gsub (value, "&", "&amp;");		-- '&' -> "&amp;"
-    value = string.gsub (value, "<", "&lt;");		-- '<' -> "&lt;"
-    value = string.gsub (value, ">", "&gt;");		-- '>' -> "&gt;"
-    value = string.gsub (value, "\"", "&quot;");	-- '"' -> "&quot;"
-    value = string.gsub(value, "([^%w%&%;%p%\t% ])",
-    function (c) 
-        return string.format("&#x%X;", string.byte(c)) 
-    end);
-    return value;
-end
-
------------------------------------------------------------
-
-Xml.FromXmlString = function(value)
-    value = string.gsub(value, "&#x([%x]+)%;",
-    function(h) 
-        return string.char(tonumber(h,16)) 
-    end);
-    value = string.gsub(value, "&#([0-9]+)%;",
-    function(h) 
-        return string.char(tonumber(h,10)) 
-    end);
-    value = string.gsub (value, "&quot;", "\"");
-    value = string.gsub (value, "&apos;", "'");
-    value = string.gsub (value, "&gt;", ">");
-    value = string.gsub (value, "&lt;", "<");
-    value = string.gsub (value, "&amp;", "&");
-    return value;
-end
-
------------------------------------------------------------
-
-Xml.ParseArgs = function(s)
-    local arg = {}
-    string.gsub(s, "(%w+)=([\"'])(.-)%2", function (w, _, a)
-        arg[w] = Xml.FromXmlString(a);
-    end)
-    return arg
-end
-
------------------------------------------------------------
-
-Xml.loadFile = function(xmlFilename, base)
-    if not base then
-        base = system.ResourceDirectory
+SaveMap.saveMap = function(loadedMap, filePath, dir)
+    if not filePath then
+        if loadedMap then
+            filePath = loadedMap
+        else
+            filePath = source
+        end
+    end	
+    local directories = {}
+    local firstIndex = 1
+    for i = 1, string.len(filePath), 1 do
+        if string.sub(filePath, i, i) == "/" then
+            directories[#directories + 1] = string.sub(filePath, firstIndex, i - 1)
+            firstIndex = i + 1
+        end
+    end	
+    local fileName = string.sub(filePath, firstIndex, string.len(filePath))	
+    local dirPath
+    if dir == "Documents" or not dir then
+        dirPath = system.pathForFile("", system.DocumentsDirectory)
+    elseif dir == "Temporary" then
+        dirPath = system.pathForFile("", system.TemporaryDirectory)
+    elseif dir == "Resource" then
+        dirPath = system.pathForFile("", system.ResourceDirectory)
+    end	
+    if #directories > 0 then
+        
+        for i = 1, #directories, 1 do
+            lfs.chdir(dirPath)
+            local exists = false
+            for file in lfs.dir(dirPath) do
+                if file == directories[i] then
+                    exists = true
+                    break
+                end
+            end
+            if not exists then
+                lfs.mkdir(directories[i])
+            end
+            dirPath = lfs.currentdir() .. "/"..directories[i]
+        end		
     end
+    local finalPath = dirPath.."/"..fileName	
     
-    local path = system.pathForFile( xmlFilename, base )
-    local hFile, err = io.open(path,"r");
-    
-    if hFile and not err then
-        local xmlText=hFile:read("*a"); -- read file content
-        io.close(hFile);
-        return Xml.ParseXmlText(xmlText),nil;
+    local jsonData
+    if not loadedMap then
+        jsonData = json.encode(Map.map)
     else
-        print( err )
-        return nil
-    end
-end
-
------------------------------------------------------------
-
-Xml.ParseXmlText = function(xmlText)
-    if not Map.mapStorage[Xml.src] then
-        Map.mapStorage[Xml.src] = {}
-    end
-    local layerIndex = 0
+        jsonData = json.encode(Map.mapStorage[loadedMap])		
+    end	
+    local saveData = io.open(finalPath, "w")	
+    saveData:write(jsonData)
+    io.close(saveData)
     
-    local stack = {}
-    local top = {name=nil,value=nil,properties={},child={}}
-    table.insert(stack, top)
-    local ni,c,label,xarg, empty
-    local i, j = 1, 1
-    local triggerBase64 = false
-    local triggerXML = false
-    local triggerCSV = false
-    local x, y = 1, 1
-    while true do
-        local ni,j,c,label,xarg, empty = string.find(xmlText, "<(%/?)([%w:]+)(.-)(%/?)>", i)
-        if not ni then break end
-        local text = string.sub(xmlText, i, ni-1);
-        if not string.find(text, "^%s*$") then
-            top.value=(top.value or "")..Xml.FromXmlString(text);
-            if triggerBase64 then
-                triggerBase64 = false
-                --decode base64 directly into Map.map array
-                --------------------------------------------------------------
-                
-                local buffer = 0
-                local pos = 1
-                local bin ={}
-                local mult = 1
-                for i = 1,40 do
-                    bin[i] = mult
-                    mult = mult*2
-                end
-                local base64 = { ['A']=0,['B']=1,['C']=2,['D']=3,['E']=4,['F']=5,['G']=6,['H']=7,['I']=8,
-                    ['J']=9,['K']=10,['L']=11,['M']=12,['N']=13,['O']=14,['P']=15,['Q']=16,
-                    ['R']=17,['S']=18,['T']=19,['U']=20,['V']=21,['W']=22,['X']=23,['Y']=24,
-                    ['Z']=25,['a']=26,['b']=27,['c']=28,['d']=29,['e']=30,['f']=31,['g']=32,
-                    ['h']=33,['i']=34,['j']=35,['k']=36,['l']=37,['m']=38,['n']=39,['o']=40,
-                    ['p']=41,['q']=42,['r']=43,['s']=44,['t']=45,['u']=46,['v']=47,['w']=48,
-                    ['x']=49,['y']=50,['z']=51,['0']=52,['1']=53,['2']=54,['3']=55,['4']=56,
-                    ['5']=57,['6']=58,['7']=59,['8']=60,['9']=61,['+']=62,['/']=63,['=']=nil
-                }
-                local set = "[^%a%d%+%/%=]"
-                
-                Xml.data = string.gsub(top.value, set, "")    
-                
-                local size = 32
-                local val = {}
-                local rawPos = 1
-                local rawSize = #top.value
-                local char = ""
-                
-                while rawPos <= rawSize do
-                    while pos <= size and rawPos <= rawSize do
-                        char = string.sub(top.value,rawPos,rawPos)
-                        if base64[char] ~= nil then
-                            buffer = buffer * bin[7] + base64[char]
-                            pos = pos + 6
-                        end
-                        rawPos = rawPos + 1
-                    end
-                    if char == "=" then 
-                        break 
-                    end
-                    
-                    while pos < 33 do 
-                        buffer = buffer * bin[2] 
-                        pos = pos + 1
-                    end
-                    pos = pos - 32
-                    Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data+1] = math.floor((buffer%bin[33+pos-1])/bin[25+pos-1]) +
-                    math.floor((buffer%bin[25+pos-1])/bin[17+pos-1])*bin[9] +
-                    math.floor((buffer%bin[17+pos-1])/bin[9+pos-1])*bin[17] + 
-                    math.floor((buffer%bin[9+pos-1])/bin[pos])*bin[25]
-                    buffer = buffer % bin[pos]    	
-                end
-                --------------------------------------------------------------
-            end
-            if triggerCSV then
-                triggerCSV = false
-                Map.mapStorage[Xml.src].layers[layerIndex].data = json.decode("["..top.value.."]")
-            end
-        end
-        if empty == "/" then  -- empty element tag
-            if label == "tile" then
-                Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data + 1] = tonumber(xarg:sub(7, xarg:len() - 1))
-            else
-                table.insert(top.child, {name=label,value=nil,properties=Xml.ParseArgs(xarg),child={}})
-            end
-            if label == "layer" or label == "objectgroup" or label == "imagelayer"  then
-                layerIndex = layerIndex + 1
-                if not Map.mapStorage[Xml.src].layers then
-                    Map.mapStorage[Xml.src].layers = {}
-                end
-                Map.mapStorage[Xml.src].layers[layerIndex] = {}
-                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
-            end
-        elseif c == "" then   -- start tag
-            local props = Xml.ParseArgs(xarg)
-            top = {name=label, value=nil, properties=props, child={}}
-            table.insert(stack, top)   -- new level
-            if label == "Map.map" then
-                --
-            end
-            if label == "layer" or label == "objectgroup" or label == "imagelayer" then
-                layerIndex = layerIndex + 1
-                x, y = 1, 1
-                if not Map.mapStorage[Xml.src].layers then
-                    Map.mapStorage[Xml.src].layers = {}
-                end
-                Map.mapStorage[Xml.src].layers[layerIndex] = {}
-                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
-                if label == "layer" then
-                    Map.mapStorage[Xml.src].layers[layerIndex].data = {}
-                    Map.mapStorage[Xml.src].layers[layerIndex].world = {}
-                    Map.mapStorage[Xml.src].layers[layerIndex].world[1] = {}
-                end
-            end
-            if label == "data" then
-                if props.encoding == "base64" then
-                    triggerBase64 = true
-                    if props.compression then
-                        print("Error(loadMap): Layer data compression is not supported. MTE supports CSV, TMX, and Base64(uncompressed).")
-                    end
-                elseif props.encoding == "csv" then
-                    triggerCSV = true
-                elseif not props.encoding then
-                    triggerXML = true
-                end
-            end
-        else  -- end tag
-            local toclose = table.remove(stack)  -- remove top
-            top = stack[#stack]
-            if #stack < 1 then
-                error("XmlParser: nothing to close with "..label)
-            end
-            if toclose.name ~= label then
-                error("XmlParser: trying to close "..toclose.name.." with "..label)
-            end
-            table.insert(top.child, toclose)
-        end
-        i = j+1
-    end
-    local text = string.sub(xmlText, i);
-    if not string.find(text, "^%s*$") then
-        stack[#stack].value=(stack[#stack].value or "")..Xml.FromXmlString(text);
-    end
-    if #stack > 1 then
-        error("XmlParser: unclosed "..stack[stack.n].name)
-    end
-    return stack[1].child[1];
 end
 
 -----------------------------------------------------------
 
-return Xml
-
+return SaveMap
 end
 end
 
@@ -9931,406 +10473,6 @@ end
 
 return DebugStats
 
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "src.Camera" ] = function( ... ) local arg = _G.arg;
-local Camera = {}
-
-local Map = require("src.Map")
-local Screen = require("src.Screen")
-
------------------------------------------------------------
-
-Camera.McameraX, Camera.McameraY = 0, 0
-Camera.McameraLocX, Camera.McameraLocY = 0, 0
-
-Camera.cameraX = 0
-Camera.cameraY = 0
-Camera.cameraLocX = 0
-Camera.cameraLocY = 0
-Camera.constrainTop = {}
-Camera.constrainBottom = {}
-Camera.constrainLeft = {}
-Camera.constrainRight = {}
-Camera.refMove = false
-Camera.override = {}
-Camera.cameraOnComplete = {}	
-Camera.cameraFocus = nil
-Camera.isCameraMoving = {}
-Camera.deltaX = {}
-Camera.deltaY = {}
-Camera.maxZoom = 9999
-Camera.minZoom = -9999
-Camera.parallaxToggle = {}
-Camera.worldWrapX = false
-Camera.worldWrapY = false
-Camera.layerWrapX = {}
-Camera.layerWrapY = {}
-Camera.currentScale = nil
-Camera.deltaZoom = nil
-Camera.screen = {}		
-Camera.cullingMargin = {0, 0, 0, 0}
-Camera.touchScroll = { false, nil, nil, nil, nil, nil }
-Camera.pinchZoom = false
-Camera.enableLighting = false
------------------------------------------------------------
-
-Camera.enableTouchScroll = function()
-    Camera.touchScroll[1] = true
-    if ( Map.map.layers and not Camera.pinchZoom ) then
-        Map.masterGroup:addEventListener("touch", Camera.touchScrollPinchZoom)
-    end
-end
-
------------------------------------------------------------
-
-Camera.enablePinchZoom = function()
-    Camera.pinchZoom = true
-    if ( Map.map.layers and not Camera.touchScroll[1] ) then
-        Map.masterGroup:addEventListener("touch", Camera.touchScrollPinchZoom)
-    end
-end
-
------------------------------------------------------------
-
-Camera.disableTouchScroll = function()
-    Camera.touchScroll[1] = false
-    if ( Map.map.layers and not Camera.pinchZoom ) then
-        Map.masterGroup:removeEventListener("touch", Camera.touchScrollPinchZoom)
-    end
-end
-
------------------------------------------------------------
-
-Camera.disablePinchZoom = function()
-    Camera.pinchZoom = false
-    if ( Map.map.layers and not Camera.touchScroll[1] ) then
-        Map.masterGroup:removeEventListener("touch", Camera.touchScrollPinchZoom)
-    end
-end
-
------------------------------------------------------------
-
-Camera.toggleWorldWrapX = function(command)
-    if command == true or command == false then
-        Camera.worldWrapX = command
-    else 
-        if Camera.worldWrapX then
-            Camera.worldWrapX = false
-        elseif not Camera.worldWrapX then
-            Camera.worldWrapX = true
-        end
-    end
-    if Map.map.properties then
-        for i = 1, #Map.map.layers, 1 do
-            Camera.layerWrapX[i] = Camera.worldWrapX
-        end
-    end
-end
-
------------------------------------------------------------
-
-Camera.toggleWorldWrapY = function(command)
-    if command == true or command == false then
-        Camera.worldWrapY = command
-    else
-        if Camera.worldWrapY then
-            Camera.worldWrapY = false
-        elseif not Camera.worldWrapY then
-            Camera.worldWrapY = true
-        end
-    end
-    if Map.map.properties then
-        for i = 1, #Map.map.layers, 1 do
-            Camera.layerWrapY[i] = Camera.worldWrapY
-        end
-    end
-end
-
------------------------------------------------------------
-
-Camera.easingHelper = function(distance, frames, kind)
-    local frameLength = display.fps
-    local move = {}
-    local total = 0
-    if not kind then
-        kind = easing.linear
-    end		
-    for i = 1, frames, 1 do
-        move[i] = kind((i - 1) * frameLength, frameLength * frames, 0, 1000)
-    end		
-    local move2 = {}
-    local total2 = 0
-    for i = 1, frames, 1 do
-        if i < frames then
-            move2[i] = move[i + 1] - move[i]
-        else
-            move2[i] = 1000 - move[i]
-        end
-        total2 = total2 + move2[i]
-    end
-    local mod2 = distance / total2
-    for i = 1, frames, 1 do
-        move2[i] = move2[i] * mod2
-    end	
-    return move2
-end
-
------------------------------------------------------------
-
-Camera.setCameraFocus = function(object, offsetX, offsetY)
-    if object then
-        Camera.cameraFocus = object
-        Camera.cameraFocus.cameraOffsetX = {}
-        Camera.cameraFocus.cameraOffsetY = {}
-        for i = 1, #Map.map.layers, 1 do
-            Camera.cameraFocus.cameraOffsetX[i] = offsetX or 0
-            Camera.cameraFocus.cameraOffsetY[i] = offsetY or 0
-        end
-    else
-        Camera.cameraFocus = nil
-    end
-end
-
------------------------------------------------------------
-
-Camera.zoom = function(scale, time, easing)
-    if not scale and not time then
-        if Camera.deltaZoom then
-            return true
-        end
-    else
-        Camera.currentScale = Map.masterGroup.xScale
-        local distance = Camera.currentScale - scale
-        time = math.ceil(time / Map.frameTime)
-        if not time or time < 1 then
-            time = 1
-        end
-        local delta = Camera.easingHelper(distance, time, easing)
-        Camera.deltaZoom = delta
-    end
-end
-
------------------------------------------------------------
-
-Camera.getCamera = function(layer)
-    if Map.map.orientation == Map.Type.Isometric then
-        if layer then
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
-            local isoPos = Map.isoUntransform2(cameraX, cameraY)
-            cameraX = isoPos[1]
-            cameraY = isoPos[2]
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-            return {levelPosX = cameraX, 
-                levelPosY = cameraY, 
-                locX = cameraLocX, 
-            locY = cameraLocY}
-        else
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-            local isoPos = Map.isoUntransform2(Camera.McameraX, Camera.McameraY)
-            Camera.McameraX = isoPos[1]
-            Camera.McameraY = isoPos[2]
-            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
-            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
-            return {levelPosX = Camera.McameraX, 
-                levelPosY = Camera.McameraY, 
-                locX = Camera.McameraLocX, 
-            locY = Camera.McameraLocY}
-        end
-    else
-        if layer then
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-            return {levelPosX = cameraX, 
-                levelPosY = cameraY, 
-                locX = cameraLocX, 
-            locY = cameraLocY}
-        else
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
-            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
-            return {levelPosX = Camera.McameraX, 
-                levelPosY = Camera.McameraY, 
-                locX = Camera.McameraLocX, 
-            locY = Camera.McameraLocY}
-        end
-    end
-end
-
-
------------------------------------------------------------
-
-Camera.moveCameraTo = function(params)
-    local check = true
-    for i = 1, #Map.map.layers, 1 do
-        if i == params.layer or not params.layer then
-            if Camera.isCameraMoving[i] then
-                check = false
-            else
-                if params.disableParallax then
-                    Camera.parallaxToggle[i] = false
-                else
-                    params.disableParallax = false
-                end
-                Camera.cameraOnComplete[i] = false
-            end
-        end
-    end		
-    if check and not params.layer then
-        Camera.refMove = true
-        Camera.cameraOnComplete[1] = params.onComplete
-    end
-    for i = 1, #Map.map.layers, 1 do
-        if (i == params.layer or not params.layer) and check then
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)	
-            
-            if not params.time or params.time < 1 then
-                params.time = 1
-            end
-            local time = math.ceil(params.time / Map.frameTime)
-            local levelPosX = params.levelPosX
-            local levelPosY = params.levelPosY
-            if params.sprite then
-                if params.sprite.levelPosX then
-                    levelPosX = params.sprite.levelPosX + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
-                    levelPosY = params.sprite.levelPosY + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
-                else
-                    levelPosX = params.sprite.x + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
-                    levelPosY = params.sprite.y + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
-                end
-            end
-            if params.locX then
-                levelPosX = params.locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
-            end
-            if params.locY then
-                levelPosY = params.locY * Map.map.tileheight - (Map.map.tileheight / 2)
-            end				
-            
-            if not levelPosX then
-                levelPosX = cameraX
-            end
-            if not levelPosY then
-                levelPosY = cameraY
-            end
-            
-            if not Camera.layerWrapX[i] then
-                endX = levelPosX
-                distanceX = endX - cameraX
-                Camera.deltaX[i] = {}
-                Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
-            else
-                local tempPosX = levelPosX
-                if tempPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) then
-                    tempPosX = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
-                elseif tempPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
-                    tempPosX = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
-                end			
-                local tempPosX2 = tempPosX
-                if tempPosX > cameraX then
-                    tempPosX2 = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
-                elseif tempPosX < cameraX then
-                    tempPosX2 = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
-                end			
-                distanceXAcross = math.abs(cameraX - tempPosX)
-                distanceXWrap = math.abs(cameraX - tempPosX2)
-                if distanceXWrap < distanceXAcross then
-                    if tempPosX > cameraX then
-                        Map.masterGroup[i].x = (cameraX + Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
-                    elseif tempPosX < cameraX then
-                        Map.masterGroup[i].x = (cameraX - Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
-                    end
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                    endX = tempPosX
-                    distanceX = endX - cameraX
-                    Camera.deltaX[i] = {}
-                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
-                else
-                    endX = levelPosX
-                    distanceX = endX - cameraX
-                    Camera.deltaX[i] = {}
-                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
-                end
-            end				
-            if not Camera.layerWrapY[i] then
-                endY = levelPosY
-                distanceY = endY - cameraY
-                Camera.deltaY[i] = {}
-                Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
-            else
-                local tempPosY = levelPosY
-                if tempPosY > Map.map.layers[i].height * Map.map.tileheight then
-                    tempPosY = tempPosY - Map.map.layers[i].height * Map.map.tileheight
-                elseif tempPosY < 1 then
-                    tempPosY = tempPosY + Map.map.layers[i].height * Map.map.tileheight
-                end			
-                local tempPosY2 = tempPosY
-                if tempPosY > cameraY then
-                    tempPosY2 = tempPosY - Map.map.layers[i].height * Map.map.tileheight
-                elseif tempPosY < cameraY then
-                    tempPosY2 = tempPosY + Map.map.layers[i].height * Map.map.tileheight
-                end					
-                distanceYAcross = math.abs(cameraY - tempPosY)
-                distanceYWrap = math.abs(cameraY - tempPosY2)
-                if distanceYWrap < distanceYAcross then
-                    if tempPosY > cameraY then
-                        Map.masterGroup[i].y = (cameraY + Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
-                    elseif tempPosY < cameraY then
-                        Map.masterGroup[i].y = (cameraY - Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
-                    end
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                    endY = tempPosY
-                    distanceY = endY - cameraY
-                    Camera.deltaY[i] = {}
-                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
-                else
-                    endY = levelPosY
-                    distanceY = endY - cameraY
-                    Camera.deltaY[i] = {}
-                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
-                end
-            end				
-            Camera.isCameraMoving[i] = true
-            if not Camera.refMove then
-                Camera.cameraOnComplete[i] = params.onComplete
-            end
-        end
-    end
-end
-
------------------------------------------------------------
-
-Camera.removeCameraConstraints = function(layer)
-    if layer then
-        constrainLeft[layer] = nil
-        constrainTop[layer] = nil
-        constrainRight[layer] = nil
-        constrainBottom[layer] = nil
-        Map.masterGroup[layer].vars.constrainLayer = nil
-    else
-        for i = 1, #Map.map.layers, 1 do
-            constrainLeft[i] = nil
-            constrainTop[i] = nil
-            constrainRight[i] = nil
-            constrainBottom[i] = nil
-        end
-    end
-end
-
-return Camera
 end
 end
 
@@ -10732,73 +10874,280 @@ end
 
 do
 local _ENV = _ENV
-package.preload[ "src.SaveMap" ] = function( ... ) local arg = _G.arg;
-local SaveMap = {}
-
-local json = require("json")
-local lfs = require("lfs")
+package.preload[ "src.Xml" ] = function( ... ) local arg = _G.arg;
+local Xml = {}
 
 -----------------------------------------------------------
 
-SaveMap.saveMap = function(loadedMap, filePath, dir)
-    if not filePath then
-        if loadedMap then
-            filePath = loadedMap
-        else
-            filePath = source
-        end
-    end	
-    local directories = {}
-    local firstIndex = 1
-    for i = 1, string.len(filePath), 1 do
-        if string.sub(filePath, i, i) == "/" then
-            directories[#directories + 1] = string.sub(filePath, firstIndex, i - 1)
-            firstIndex = i + 1
-        end
-    end	
-    local fileName = string.sub(filePath, firstIndex, string.len(filePath))	
-    local dirPath
-    if dir == "Documents" or not dir then
-        dirPath = system.pathForFile("", system.DocumentsDirectory)
-    elseif dir == "Temporary" then
-        dirPath = system.pathForFile("", system.TemporaryDirectory)
-    elseif dir == "Resource" then
-        dirPath = system.pathForFile("", system.ResourceDirectory)
-    end	
-    if #directories > 0 then
-        
-        for i = 1, #directories, 1 do
-            lfs.chdir(dirPath)
-            local exists = false
-            for file in lfs.dir(dirPath) do
-                if file == directories[i] then
-                    exists = true
-                    break
-                end
-            end
-            if not exists then
-                lfs.mkdir(directories[i])
-            end
-            dirPath = lfs.currentdir() .. "/"..directories[i]
-        end		
-    end
-    local finalPath = dirPath.."/"..fileName	
-    
-    local jsonData
-    if not loadedMap then
-        jsonData = json.encode(Map.map)
-    else
-        jsonData = json.encode(Map.mapStorage[loadedMap])		
-    end	
-    local saveData = io.open(finalPath, "w")	
-    saveData:write(jsonData)
-    io.close(saveData)
-    
+local json = require("json")
+
+local Map = require("src.Map")
+
+-----------------------------------------------------------
+
+Xml.data = nil
+
+-----------------------------------------------------------
+
+Xml.ToXmlString = function(value)
+    value = string.gsub (value, "&", "&amp;");		-- '&' -> "&amp;"
+    value = string.gsub (value, "<", "&lt;");		-- '<' -> "&lt;"
+    value = string.gsub (value, ">", "&gt;");		-- '>' -> "&gt;"
+    value = string.gsub (value, "\"", "&quot;");	-- '"' -> "&quot;"
+    value = string.gsub(value, "([^%w%&%;%p%\t% ])",
+    function (c) 
+        return string.format("&#x%X;", string.byte(c)) 
+    end);
+    return value;
 end
 
 -----------------------------------------------------------
 
-return SaveMap
+Xml.FromXmlString = function(value)
+    value = string.gsub(value, "&#x([%x]+)%;",
+    function(h) 
+        return string.char(tonumber(h,16)) 
+    end);
+    value = string.gsub(value, "&#([0-9]+)%;",
+    function(h) 
+        return string.char(tonumber(h,10)) 
+    end);
+    value = string.gsub (value, "&quot;", "\"");
+    value = string.gsub (value, "&apos;", "'");
+    value = string.gsub (value, "&gt;", ">");
+    value = string.gsub (value, "&lt;", "<");
+    value = string.gsub (value, "&amp;", "&");
+    return value;
+end
+
+-----------------------------------------------------------
+
+Xml.ParseArgs = function(s)
+    local arg = {}
+    string.gsub(s, "(%w+)=([\"'])(.-)%2", function (w, _, a)
+        arg[w] = Xml.FromXmlString(a);
+    end)
+    return arg
+end
+
+-----------------------------------------------------------
+
+Xml.loadFile = function(xmlFilename, base)
+    if not base then
+        base = system.ResourceDirectory
+    end
+    
+    local path = system.pathForFile( xmlFilename, base )
+    local hFile, err = io.open(path,"r");
+    
+    if hFile and not err then
+        local xmlText=hFile:read("*a"); -- read file content
+        io.close(hFile);
+        return Xml.ParseXmlText(xmlText),nil;
+    else
+        print( err )
+        return nil
+    end
+end
+
+-----------------------------------------------------------
+
+Xml.ParseXmlText = function(xmlText)
+    if not Map.mapStorage[Xml.src] then
+        Map.mapStorage[Xml.src] = {}
+    end
+    local layerIndex = 0
+    
+    local stack = {}
+    local top = {name=nil,value=nil,properties={},child={}}
+    table.insert(stack, top)
+    local ni,c,label,xarg, empty
+    local i, j = 1, 1
+    local triggerBase64 = false
+    local triggerXML = false
+    local triggerCSV = false
+    local x, y = 1, 1
+    while true do
+        local ni,j,c,label,xarg, empty = string.find(xmlText, "<(%/?)([%w:]+)(.-)(%/?)>", i)
+        if not ni then break end
+        local text = string.sub(xmlText, i, ni-1);
+        if not string.find(text, "^%s*$") then
+            top.value=(top.value or "")..Xml.FromXmlString(text);
+            if triggerBase64 then
+                triggerBase64 = false
+                --decode base64 directly into Map.map array
+                --------------------------------------------------------------
+                
+                local buffer = 0
+                local pos = 1
+                local bin ={}
+                local mult = 1
+                for i = 1,40 do
+                    bin[i] = mult
+                    mult = mult*2
+                end
+                local base64 = { ['A']=0,['B']=1,['C']=2,['D']=3,['E']=4,['F']=5,['G']=6,['H']=7,['I']=8,
+                    ['J']=9,['K']=10,['L']=11,['M']=12,['N']=13,['O']=14,['P']=15,['Q']=16,
+                    ['R']=17,['S']=18,['T']=19,['U']=20,['V']=21,['W']=22,['X']=23,['Y']=24,
+                    ['Z']=25,['a']=26,['b']=27,['c']=28,['d']=29,['e']=30,['f']=31,['g']=32,
+                    ['h']=33,['i']=34,['j']=35,['k']=36,['l']=37,['m']=38,['n']=39,['o']=40,
+                    ['p']=41,['q']=42,['r']=43,['s']=44,['t']=45,['u']=46,['v']=47,['w']=48,
+                    ['x']=49,['y']=50,['z']=51,['0']=52,['1']=53,['2']=54,['3']=55,['4']=56,
+                    ['5']=57,['6']=58,['7']=59,['8']=60,['9']=61,['+']=62,['/']=63,['=']=nil
+                }
+                local set = "[^%a%d%+%/%=]"
+                
+                Xml.data = string.gsub(top.value, set, "")    
+                
+                local size = 32
+                local val = {}
+                local rawPos = 1
+                local rawSize = #top.value
+                local char = ""
+                
+                while rawPos <= rawSize do
+                    while pos <= size and rawPos <= rawSize do
+                        char = string.sub(top.value,rawPos,rawPos)
+                        if base64[char] ~= nil then
+                            buffer = buffer * bin[7] + base64[char]
+                            pos = pos + 6
+                        end
+                        rawPos = rawPos + 1
+                    end
+                    if char == "=" then 
+                        break 
+                    end
+                    
+                    while pos < 33 do 
+                        buffer = buffer * bin[2] 
+                        pos = pos + 1
+                    end
+                    pos = pos - 32
+                    Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data+1] = math.floor((buffer%bin[33+pos-1])/bin[25+pos-1]) +
+                    math.floor((buffer%bin[25+pos-1])/bin[17+pos-1])*bin[9] +
+                    math.floor((buffer%bin[17+pos-1])/bin[9+pos-1])*bin[17] + 
+                    math.floor((buffer%bin[9+pos-1])/bin[pos])*bin[25]
+                    buffer = buffer % bin[pos]    	
+                end
+                --------------------------------------------------------------
+            end
+            if triggerCSV then
+                triggerCSV = false
+                Map.mapStorage[Xml.src].layers[layerIndex].data = json.decode("["..top.value.."]")
+            end
+        end
+        if empty == "/" then  -- empty element tag
+            if label == "tile" then
+                Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data + 1] = tonumber(xarg:sub(7, xarg:len() - 1))
+            else
+                table.insert(top.child, {name=label,value=nil,properties=Xml.ParseArgs(xarg),child={}})
+            end
+            if label == "layer" or label == "objectgroup" or label == "imagelayer"  then
+                layerIndex = layerIndex + 1
+                if not Map.mapStorage[Xml.src].layers then
+                    Map.mapStorage[Xml.src].layers = {}
+                end
+                Map.mapStorage[Xml.src].layers[layerIndex] = {}
+                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
+            end
+        elseif c == "" then   -- start tag
+            local props = Xml.ParseArgs(xarg)
+            top = {name=label, value=nil, properties=props, child={}}
+            table.insert(stack, top)   -- new level
+            if label == "Map.map" then
+                --
+            end
+            if label == "layer" or label == "objectgroup" or label == "imagelayer" then
+                layerIndex = layerIndex + 1
+                x, y = 1, 1
+                if not Map.mapStorage[Xml.src].layers then
+                    Map.mapStorage[Xml.src].layers = {}
+                end
+                Map.mapStorage[Xml.src].layers[layerIndex] = {}
+                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
+                if label == "layer" then
+                    Map.mapStorage[Xml.src].layers[layerIndex].data = {}
+                    Map.mapStorage[Xml.src].layers[layerIndex].world = {}
+                    Map.mapStorage[Xml.src].layers[layerIndex].world[1] = {}
+                end
+            end
+            if label == "data" then
+                if props.encoding == "base64" then
+                    triggerBase64 = true
+                    if props.compression then
+                        print("Error(loadMap): Layer data compression is not supported. MTE supports CSV, TMX, and Base64(uncompressed).")
+                    end
+                elseif props.encoding == "csv" then
+                    triggerCSV = true
+                elseif not props.encoding then
+                    triggerXML = true
+                end
+            end
+        else  -- end tag
+            local toclose = table.remove(stack)  -- remove top
+            top = stack[#stack]
+            if #stack < 1 then
+                error("XmlParser: nothing to close with "..label)
+            end
+            if toclose.name ~= label then
+                error("XmlParser: trying to close "..toclose.name.." with "..label)
+            end
+            table.insert(top.child, toclose)
+        end
+        i = j+1
+    end
+    local text = string.sub(xmlText, i);
+    if not string.find(text, "^%s*$") then
+        stack[#stack].value=(stack[#stack].value or "")..Xml.FromXmlString(text);
+    end
+    if #stack > 1 then
+        error("XmlParser: unclosed "..stack[stack.n].name)
+    end
+    return stack[1].child[1];
+end
+
+-----------------------------------------------------------
+
+return Xml
+
+end
+end
+
+do
+local _ENV = _ENV
+package.preload[ "src.PhysicsData" ] = function( ... ) local arg = _G.arg;
+local PhysicsData = {}
+
+-----------------------------------------------------------
+
+PhysicsData.defaultDensity = 1.0
+PhysicsData.defaultFriction = 0.1
+PhysicsData.defaultBounce = 0
+PhysicsData.defaultBodyType = "static"
+PhysicsData.defaultShape = nil
+PhysicsData.defaultRadius = nil
+PhysicsData.defaultFilter = nil
+PhysicsData.layer = {}
+
+PhysicsData.managePhysicsStates = true
+
+PhysicsData.enablePhysicsByLayer = 0
+PhysicsData.enablePhysics = {}
+
+-----------------------------------------------------------
+
+PhysicsData.enableBox2DPhysics = function(arg)
+    if ( arg == "by layer" ) then
+        PhysicsData.enablePhysicsByLayer = 1
+    elseif ( arg == "all" or arg == "Map.map" or not arg ) then
+        PhysicsData.enablePhysicsByLayer = 2
+    end
+end
+
+-----------------------------------------------------------
+
+return PhysicsData
+
 end
 end
 
@@ -10831,12 +11180,6 @@ local Xml = require("src.Xml")
 -----------------------------------------------------------
 
 local source    
-
------------------------------------------------------------
-
---STANDARD ISO VARIABLES
-local R45 = math.rad(45)
-
 
 -----------------------------------------------------------
 
@@ -11030,6 +11373,11 @@ end
 
 M.update = Core.update
 M.updateTile = Core.updateTile
+M.addPropertyListener = Core.addPropertyListener
+M.addObjectDrawListener = Core.addObjectDrawListener
+M.drawObjects = Core.drawObjects
+M.refresh = Core.refresh
+M.setLayerProperties = Core.setLayerProperties
 
 -------------------------
 -- Camera
@@ -11972,254 +12320,6 @@ M.getObject = function(options)
             return properties
         else
             --print("getObject(): These objects have no properties.")
-        end
-    end
-end
-
------------------------------------------------------------
-
-M.setLayerProperties = function(layer, t)
-    if not layer then
-        print("ERROR(setLayerProperties): No layer specified.")
-    end
-    local lyr = layer
-    if lyr > #Map.map.layers then
-        print("Warning(setLayerProperties): The layer index is too high. Defaulting to top layer.")
-        lyr = #Map.map.layers
-    elseif lyr < 1 then
-        print("Warning(setLayerProperties): The layer index is too low. Defaulting to layer 1.")
-        lyr = 1
-    end
-    local i = lyr
-    Map.map.layers[lyr].properties = t
-    if not Map.map.layers[i].properties then
-        Map.map.layers[i].properties = {}
-        Map.map.layers[i].properties.level = "1"
-        Map.map.layers[i].properties.scaleX = 1
-        Map.map.layers[i].properties.scaleY = 1
-        Map.map.layers[i].properties.parallaxX = 1
-        Map.map.layers[i].properties.parallaxY = 1
-    else
-        if not Map.map.layers[i].properties.level then
-            Map.map.layers[i].properties.level = "1"
-        end
-        if Map.map.layers[i].properties.scale then
-            Map.map.layers[i].properties.scaleX = Map.map.layers[i].properties.scale
-            Map.map.layers[i].properties.scaleY = Map.map.layers[i].properties.scale
-        else
-            if not Map.map.layers[i].properties.scaleX then
-                Map.map.layers[i].properties.scaleX = 1
-            end
-            if not Map.map.layers[i].properties.scaleY then
-                Map.map.layers[i].properties.scaleY = 1
-            end
-        end
-    end
-    Map.map.layers[i].properties.scaleX = tonumber(Map.map.layers[i].properties.scaleX)
-    Map.map.layers[i].properties.scaleY = tonumber(Map.map.layers[i].properties.scaleY)
-    if Map.map.layers[lyr].properties.parallax then
-        Map.map.layers[lyr].parallaxX = Map.map.layers[lyr].properties.parallax / Map.map.layers[lyr].properties.scaleX
-        Map.map.layers[lyr].parallaxY = Map.map.layers[lyr].properties.parallax / Map.map.layers[lyr].properties.scaleY
-    else
-        if Map.map.layers[lyr].properties.parallaxX then
-            Map.map.layers[lyr].parallaxX = Map.map.layers[lyr].properties.parallaxX / Map.map.layers[lyr].properties.scaleX
-        else
-            Map.map.layers[lyr].parallaxX = 1
-        end
-        if Map.map.layers[lyr].properties.parallaxY then
-            Map.map.layers[lyr].parallaxY = Map.map.layers[lyr].properties.parallaxY / Map.map.layers[lyr].properties.scaleY
-        else
-            Map.map.layers[lyr].parallaxY = 1
-        end
-    end
-    --CHECK REFERENCE LAYER
-    if Map.refLayer == lyr then
-        if Map.map.layers[lyr].parallaxX ~= 1 or Map.map.layers[lyr].parallaxY ~= 1 then
-            for i = 1, #Map.map.layers, 1 do
-                if Map.map.layers[i].parallaxX == 1 and Map.map.layers[i].parallaxY == 1 then
-                    Map.refLayer = i
-                    break
-                end
-            end
-            if not Map.refLayer then
-                Map.refLayer = 1
-            end
-        end
-    end
-    
-    --DETECT LAYER WRAP
-    Camera.layerWrapX[lyr] = Camera.worldWrapX
-    Camera.layerWrapY[lyr] = Camera.worldWrapY
-    if Map.map.layers[lyr].properties.wrap then
-        if Map.map.layers[lyr].properties.wrap == "true" then
-            Camera.layerWrapX[lyr] = true
-            Camera.layerWrapY[lyr] = true
-        elseif Map.map.layers[lyr].properties.wrap == "false" then
-            Camera.layerWrapX[lyr] = false
-            Camera.layerWrapY[lyr] = false
-        end
-    end
-    if Map.map.layers[lyr].properties.wrapX then
-        if Map.map.layers[lyr].properties.wrapX == "true" then
-            Camera.layerWrapX[lyr] = true
-        elseif Map.map.layers[lyr].properties.wrapX == "false" then
-            Camera.layerWrapX[lyr] = false
-        end
-    end
-    if Map.map.layers[lyr].properties.wrapY then
-        if Map.map.layers[lyr].properties.wrapY == "true" then
-            Camera.layerWrapY[lyr] = true
-        elseif Map.map.layers[lyr].properties.wrapY == "false" then
-            Camera.layerWrapX[lyr] = false
-        end
-    end
-    
-    --LOAD PHYSICS
-    if PhysicsData.enablePhysicsByLayer == 1 then
-        if Map.map.layers[i].properties.physics == "true" then
-            PhysicsData.enablePhysics[i] = true
-            PhysicsData.layer[i] = {}
-            PhysicsData.layer[i].defaultDensity = PhysicsData.defaultDensity
-            PhysicsData.layer[i].defaultFriction = PhysicsData.defaultFriction
-            PhysicsData.layer[i].defaultBounce = PhysicsData.defaultBounce
-            PhysicsData.layer[i].defaultBodyType = PhysicsData.defaultBodyType
-            PhysicsData.layer[i].defaultShape = PhysicsData.defaultShape
-            PhysicsData.layer[i].defaultRadius = PhysicsData.defaultRadius
-            PhysicsData.layer[i].defaultFilter = PhysicsData.defaultFilter
-            PhysicsData.layer[i].isActive = true
-            PhysicsData.layer[i].isAwake = true
-            
-            if Map.map.layers[i].properties.density then
-                PhysicsData.layer[i].defaultDensity = Map.map.layers[i].properties.density
-            end
-            if Map.map.layers[i].properties.friction then
-                PhysicsData.layer[i].defaultFriction = Map.map.layers[i].properties.friction
-            end
-            if Map.map.layers[i].properties.bounce then
-                PhysicsData.layer[i].defaultBounce = Map.map.layers[i].properties.bounce
-            end
-            if Map.map.layers[i].properties.bodyType then
-                PhysicsData.layer[i].defaultBodyType = Map.map.layers[i].properties.bodyType
-            end
-            if Map.map.layers[i].properties.shape then
-                if type(Map.map.layers[i].properties.shape) == "string" then
-                    PhysicsData.layer[i].defaultShape = json.decode(Map.map.layers[i].properties.shape)
-                else
-                    PhysicsData.layer[i].defaultShape = Map.map.layers[i].properties.shape
-                end
-            end
-            if Map.map.layers[i].properties.radius then
-                PhysicsData.layer[i].defaultRadius = Map.map.layers[i].properties.radius
-            end
-            if Map.map.layers[i].properties.groupIndex or Map.map.layers[i].properties.categoryBits or Map.map.layers[i].properties.maskBits then
-                PhysicsData.layer[i].defaultFilter = {categoryBits = tonumber(Map.map.layers[i].properties.categoryBits),
-                    maskBits = tonumber(Map.map.layers[i].properties.maskBits),
-                    groupIndex = tonumber(Map.map.layers[i].properties.groupIndex)
-                }
-            end
-        end
-    elseif PhysicsData.enablePhysicsByLayer == 2 then
-        PhysicsData.enablePhysics[i] = true
-        PhysicsData.layer[i] = {}
-        PhysicsData.layer[i].defaultDensity = PhysicsData.defaultDensity
-        PhysicsData.layer[i].defaultFriction = PhysicsData.defaultFriction
-        PhysicsData.layer[i].defaultBounce = PhysicsData.defaultBounce
-        PhysicsData.layer[i].defaultBodyType = PhysicsData.defaultBodyType
-        PhysicsData.layer[i].defaultShape = PhysicsData.defaultShape
-        PhysicsData.layer[i].defaultRadius = PhysicsData.defaultRadius
-        PhysicsData.layer[i].defaultFilter = PhysicsData.defaultFilter
-        PhysicsData.layer[i].isActive = true
-        PhysicsData.layer[i].isAwake = true
-        
-        if Map.map.layers[i].properties.density then
-            PhysicsData.layer[i].defaultDensity = Map.map.layers[i].properties.density
-        end
-        if Map.map.layers[i].properties.friction then
-            PhysicsData.layer[i].defaultFriction = Map.map.layers[i].properties.friction
-        end
-        if Map.map.layers[i].properties.bounce then
-            PhysicsData.layer[i].defaultBounce = Map.map.layers[i].properties.bounce
-        end
-        if Map.map.layers[i].properties.bodyType then
-            PhysicsData.layer[i].defaultBodyType = Map.map.layers[i].properties.bodyType
-        end
-        if Map.map.layers[i].properties.shape then
-            if type(Map.map.layers[i].properties.shape) == "string" then
-                PhysicsData.layer[i].defaultShape = json.decode(Map.map.layers[i].properties.shape)
-            else
-                PhysicsData.layer[i].defaultShape = Map.map.layers[i].properties.shape
-            end
-        end
-        if Map.map.layers[i].properties.radius then
-            PhysicsData.layer[i].defaultRadius = Map.map.layers[i].properties.radius
-        end
-        if Map.map.layers[i].properties.groupIndex or Map.map.layers[i].properties.categoryBits or Map.map.layers[i].properties.maskBits then
-            PhysicsData.layer[i].defaultFilter = {categoryBits = tonumber(Map.map.layers[i].properties.categoryBits),
-                maskBits = tonumber(Map.map.layers[i].properties.maskBits),
-                groupIndex = tonumber(Map.map.layers[i].properties.groupIndex)
-            }
-        end			
-    end
-    
-    --LIGHTING
-    if Map.map.properties then
-        if Map.map.properties.lightingStyle then
-            local levelLighting = {}
-            for i = 1, Map.map.numLevels, 1 do
-                levelLighting[i] = {}
-            end
-            if not Map.map.properties.lightRedStart then
-                Map.map.properties.lightRedStart = "1"
-            end
-            if not Map.map.properties.lightGreenStart then
-                Map.map.properties.lightGreenStart = "1"
-            end
-            if not Map.map.properties.lightBlueStart then
-                Map.map.properties.lightBlueStart = "1"
-            end
-            if Map.map.properties.lightingStyle == "diminish" then
-                local rate = tonumber(Map.map.properties.lightRate)
-                levelLighting[Map.map.numLevels].red = tonumber(Map.map.properties.lightRedStart)
-                levelLighting[Map.map.numLevels].green = tonumber(Map.map.properties.lightGreenStart)
-                levelLighting[Map.map.numLevels].blue = tonumber(Map.map.properties.lightBlueStart)
-                for i = Map.map.numLevels - 1, 1, -1 do
-                    levelLighting[i].red = levelLighting[Map.map.numLevels].red - (rate * (Map.map.numLevels - i))
-                    if levelLighting[i].red < 0 then
-                        levelLighting[i].red = 0
-                    end
-                    levelLighting[i].green = levelLighting[Map.map.numLevels].green - (rate * (Map.map.numLevels - i))
-                    if levelLighting[i].green < 0 then
-                        levelLighting[i].green = 0
-                    end
-                    levelLighting[i].blue = levelLighting[Map.map.numLevels].blue - (rate * (Map.map.numLevels - i))
-                    if levelLighting[i].blue < 0 then
-                        levelLighting[i].blue = 0
-                    end
-                end
-            end
-            for i = 1, #Map.map.layers, 1 do
-                if Map.map.layers[i].properties.lightRed then
-                    Map.map.layers[i].redLight = tonumber(Map.map.layers[i].properties.lightRed)
-                else
-                    Map.map.layers[i].redLight = levelLighting[Map.map.layers[i].properties.level].red
-                end
-                if Map.map.layers[i].properties.lightGreen then
-                    Map.map.layers[i].greenLight = tonumber(Map.map.layers[i].properties.lightGreen)
-                else
-                    Map.map.layers[i].greenLight = levelLighting[Map.map.layers[i].properties.level].green
-                end
-                if Map.map.layers[i].properties.lightBlue then
-                    Map.map.layers[i].blueLight = tonumber(Map.map.layers[i].properties.lightBlue)
-                else
-                    Map.map.layers[i].blueLight = levelLighting[Map.map.layers[i].properties.level].blue
-                end
-            end
-        else
-            for i = 1, #Map.map.layers, 1 do
-                Map.map.layers[i].redLight = 1
-                Map.map.layers[i].greenLight = 1
-                Map.map.layers[i].blueLight = 1
-            end
         end
     end
 end
@@ -14209,7 +14309,7 @@ M.loadMap = function(src, dir, unload)
     Xml.src = src
     local startTime=system.getTimer()
     for key,value in pairs(Sprites.sprites) do
-        Sprite.removeSprite(value)
+        Sprites.removeSprite(value)
     end
     if Map.masterGroup then
         if Map.map.orientation == Map.Type.Isometric then
@@ -15589,102 +15689,6 @@ end
 
 Sprites.spritesFrozen = false
 Camera.McameraFrozen = false
-
------------------------------------------------------------
-
-M.refresh = function()
-    
-    Map.setMapProperties(Map.map.properties)
-    for i = 1, #Map.map.layers, 1 do
-        M.setLayerProperties(i, Map.map.layers[i].properties)
-    end
-    for i = 1, #Map.map.layers, 1 do
-        for locX = Map.masterGroup[i].vars.camera[1], Map.masterGroup[i].vars.camera[3], 1 do
-            for locY = Map.masterGroup[i].vars.camera[2], Map.masterGroup[i].vars.camera[4], 1 do
-                --print(locX, locY)
-                M.updateTile({locX = locX, locY = locY, layer = i, tile = -1})
-                cullLargeTile(locX, locY, i, true)
-            end
-        end
-        Map.masterGroup[i].vars.camera = nil
-    end
-    M.update()
-    --PROCESS ANIMATION DATA
-    for i = 1, #Map.map.tilesets, 1 do
-        if Map.map.tilesets[i].tileproperties then
-            for key,value in pairs(Map.map.tilesets[i].tileproperties) do
-                for key2,value2 in pairs(Map.map.tilesets[i].tileproperties[key]) do
-                    if key2 == "animFrames" then
-                        local tempFrames
-                        if type(value2) == "string" then
-                            Map.map.tilesets[i].tileproperties[key]["animFrames"] = json.decode(value2)
-                            tempFrames = json.decode(value2)
-                        else
-                            Map.map.tilesets[i].tileproperties[key]["animFrames"] = value2
-                            tempFrames = value2
-                        end
-                        if Map.map.tilesets[i].tileproperties[key]["animFrameSelect"] == "relative" then
-                            local frames = {}
-                            for f = 1, #tempFrames, 1 do
-                                frames[f] = (tonumber(key) + 1) + tempFrames[f]
-                            end
-                            Map.map.tilesets[i].tileproperties[key]["sequenceData"] = {
-                                name="null",
-                                frames=frames,
-                                time = tonumber(Map.map.tilesets[i].tileproperties[key]["animDelay"]),
-                                loopCount = 0
-                            }
-                        elseif Map.map.tilesets[i].tileproperties[key]["animFrameSelect"] == "absolute" then
-                            Map.map.tilesets[i].tileproperties[key]["sequenceData"] = {
-                                name="null",
-                                frames=tempFrames,
-                                time = tonumber(Map.map.tilesets[i].tileproperties[key]["animDelay"]),
-                                loopCount = 0
-                            }
-                        end
-                        Map.map.tilesets[i].tileproperties[key]["animSync"] = tonumber(Map.map.tilesets[i].tileproperties[key]["animSync"]) or 1
-                        if not Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ] then
-                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ] = {}
-                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].time = (Map.map.tilesets[i].tileproperties[key]["sequenceData"].time / #Map.map.tilesets[i].tileproperties[key]["sequenceData"].frames) / Map.frameTime
-                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].currentFrame = 1
-                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].counter = Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].time
-                            Core.syncData[Map.map.tilesets[i].tileproperties[key]["animSync"] ].frames = Map.map.tilesets[i].tileproperties[key]["sequenceData"].frames
-                        end
-                    end
-                    if key2 == "shape" then
-                        if type(value2) == "string" then
-                            Map.map.tilesets[i].tileproperties[key]["shape"] = json.decode(value2)
-                        else
-                            Map.map.tilesets[i].tileproperties[key]["shape"] = value2
-                        end
-                    end
-                    if key2 == "filter" then
-                        if type(value2) == "string" then
-                            Map.map.tilesets[i].tileproperties[key]["filter"] = json.decode(value2)
-                        else
-                            Map.map.tilesets[i].tileproperties[key]["filter"] = value2
-                        end
-                    end
-                    if key2 == "opacity" then					
-                        frameIndex = tonumber(key) + (Map.map.tilesets[i].firstgid - 1) + 1
-                        
-                        if not Map.map.lightingData[frameIndex] then
-                            Map.map.lightingData[frameIndex] = {}
-                        end
-                        if type(value2) == "string" then
-                            Map.map.lightingData[frameIndex].opacity = json.decode(value2)
-                        else
-                            Map.map.lightingData[frameIndex].opacity = value2
-                        end
-                    end
-                end
-            end
-        end			
-        if not Map.map.tilesets[i].properties then
-            Map.map.tilesets[i].properties = {}
-        end
-    end
-end
 
 -----------------------------------------------------------
 
