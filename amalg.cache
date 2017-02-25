@@ -1,4 +1,5 @@
 return {
+  [ "src.Core" ] = "L",
   [ "src.Camera" ] = "L",
   [ "src.DebugStats" ] = "L",
   [ "src.Light" ] = "L",

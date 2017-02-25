@@ -8,7 +8,7 @@
 -- Require
 -------------------------
 
-_G.MTE = require("mte").createMTE()
+_G.MTE = require("mte_test").createMTE()
 _G.Screen = require("Screen")
 
 -------------------------
@@ -26,9 +26,9 @@ system.activate( "multitouch" )
 -- Comment / uncomment to sample each project.
 
 --require("AppendMap.main")
-require("CastleDemo.main")
---require("IsometricComposer.main")
---require("Lighting.main")
+-- require("CastleDemo.main")
+require("IsometricComposer.main")
+-- require("Lighting.main")
 --require("LineOfSight.main")
 --require("PlatformerAngled.main")
 --require("PlatformerBasic.main")

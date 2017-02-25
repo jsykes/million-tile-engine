@@ -1,6 +1,7 @@
 local Camera = {}
 
 local Map = require("src.Map")
+local Screen = require("src.Screen")
 
 -----------------------------------------------------------
 
@@ -35,7 +36,7 @@ Camera.screen = {}
 Camera.cullingMargin = {0, 0, 0, 0}
 Camera.touchScroll = { false, nil, nil, nil, nil, nil }
 Camera.pinchZoom = false
-
+Camera.enableLighting = false
 -----------------------------------------------------------
 
 Camera.enableTouchScroll = function()
@@ -155,6 +156,8 @@ Camera.setCameraFocus = function(object, offsetX, offsetY)
     end
 end
 
+-----------------------------------------------------------
+
 Camera.zoom = function(scale, time, easing)
     if not scale and not time then
         if Camera.deltaZoom then
@@ -173,5 +176,219 @@ Camera.zoom = function(scale, time, easing)
 end
 
 -----------------------------------------------------------
+
+Camera.getCamera = function(layer)
+    if Map.map.orientation == Map.Type.Isometric then
+        if layer then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
+            local isoPos = Map.isoUntransform2(cameraX, cameraY)
+            cameraX = isoPos[1]
+            cameraY = isoPos[2]
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+            return {levelPosX = cameraX, 
+                levelPosY = cameraY, 
+                locX = cameraLocX, 
+            locY = cameraLocY}
+        else
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+            local isoPos = Map.isoUntransform2(Camera.McameraX, Camera.McameraY)
+            Camera.McameraX = isoPos[1]
+            Camera.McameraY = isoPos[2]
+            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
+            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
+            return {levelPosX = Camera.McameraX, 
+                levelPosY = Camera.McameraY, 
+                locX = Camera.McameraLocX, 
+            locY = Camera.McameraLocY}
+        end
+    else
+        if layer then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+            return {levelPosX = cameraX, 
+                levelPosY = cameraY, 
+                locX = cameraLocX, 
+            locY = cameraLocY}
+        else
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
+            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
+            return {levelPosX = Camera.McameraX, 
+                levelPosY = Camera.McameraY, 
+                locX = Camera.McameraLocX, 
+            locY = Camera.McameraLocY}
+        end
+    end
+end
+
+
+-----------------------------------------------------------
+
+Camera.moveCameraTo = function(params)
+    local check = true
+    for i = 1, #Map.map.layers, 1 do
+        if i == params.layer or not params.layer then
+            if Camera.isCameraMoving[i] then
+                check = false
+            else
+                if params.disableParallax then
+                    Camera.parallaxToggle[i] = false
+                else
+                    params.disableParallax = false
+                end
+                Camera.cameraOnComplete[i] = false
+            end
+        end
+    end		
+    if check and not params.layer then
+        Camera.refMove = true
+        Camera.cameraOnComplete[1] = params.onComplete
+    end
+    for i = 1, #Map.map.layers, 1 do
+        if (i == params.layer or not params.layer) and check then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)	
+            
+            if not params.time or params.time < 1 then
+                params.time = 1
+            end
+            local time = math.ceil(params.time / Map.frameTime)
+            local levelPosX = params.levelPosX
+            local levelPosY = params.levelPosY
+            if params.sprite then
+                if params.sprite.levelPosX then
+                    levelPosX = params.sprite.levelPosX + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
+                    levelPosY = params.sprite.levelPosY + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
+                else
+                    levelPosX = params.sprite.x + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
+                    levelPosY = params.sprite.y + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
+                end
+            end
+            if params.locX then
+                levelPosX = params.locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
+            end
+            if params.locY then
+                levelPosY = params.locY * Map.map.tileheight - (Map.map.tileheight / 2)
+            end				
+            
+            if not levelPosX then
+                levelPosX = cameraX
+            end
+            if not levelPosY then
+                levelPosY = cameraY
+            end
+            
+            if not Camera.layerWrapX[i] then
+                endX = levelPosX
+                distanceX = endX - cameraX
+                Camera.deltaX[i] = {}
+                Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+            else
+                local tempPosX = levelPosX
+                if tempPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) then
+                    tempPosX = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
+                elseif tempPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
+                    tempPosX = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
+                end			
+                local tempPosX2 = tempPosX
+                if tempPosX > cameraX then
+                    tempPosX2 = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
+                elseif tempPosX < cameraX then
+                    tempPosX2 = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
+                end			
+                distanceXAcross = math.abs(cameraX - tempPosX)
+                distanceXWrap = math.abs(cameraX - tempPosX2)
+                if distanceXWrap < distanceXAcross then
+                    if tempPosX > cameraX then
+                        Map.masterGroup[i].x = (cameraX + Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
+                    elseif tempPosX < cameraX then
+                        Map.masterGroup[i].x = (cameraX - Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
+                    end
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                    endX = tempPosX
+                    distanceX = endX - cameraX
+                    Camera.deltaX[i] = {}
+                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+                else
+                    endX = levelPosX
+                    distanceX = endX - cameraX
+                    Camera.deltaX[i] = {}
+                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+                end
+            end				
+            if not Camera.layerWrapY[i] then
+                endY = levelPosY
+                distanceY = endY - cameraY
+                Camera.deltaY[i] = {}
+                Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+            else
+                local tempPosY = levelPosY
+                if tempPosY > Map.map.layers[i].height * Map.map.tileheight then
+                    tempPosY = tempPosY - Map.map.layers[i].height * Map.map.tileheight
+                elseif tempPosY < 1 then
+                    tempPosY = tempPosY + Map.map.layers[i].height * Map.map.tileheight
+                end			
+                local tempPosY2 = tempPosY
+                if tempPosY > cameraY then
+                    tempPosY2 = tempPosY - Map.map.layers[i].height * Map.map.tileheight
+                elseif tempPosY < cameraY then
+                    tempPosY2 = tempPosY + Map.map.layers[i].height * Map.map.tileheight
+                end					
+                distanceYAcross = math.abs(cameraY - tempPosY)
+                distanceYWrap = math.abs(cameraY - tempPosY2)
+                if distanceYWrap < distanceYAcross then
+                    if tempPosY > cameraY then
+                        Map.masterGroup[i].y = (cameraY + Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
+                    elseif tempPosY < cameraY then
+                        Map.masterGroup[i].y = (cameraY - Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
+                    end
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                    endY = tempPosY
+                    distanceY = endY - cameraY
+                    Camera.deltaY[i] = {}
+                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+                else
+                    endY = levelPosY
+                    distanceY = endY - cameraY
+                    Camera.deltaY[i] = {}
+                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+                end
+            end				
+            Camera.isCameraMoving[i] = true
+            if not Camera.refMove then
+                Camera.cameraOnComplete[i] = params.onComplete
+            end
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.removeCameraConstraints = function(layer)
+    if layer then
+        constrainLeft[layer] = nil
+        constrainTop[layer] = nil
+        constrainRight[layer] = nil
+        constrainBottom[layer] = nil
+        Map.masterGroup[layer].vars.constrainLayer = nil
+    else
+        for i = 1, #Map.map.layers, 1 do
+            constrainLeft[i] = nil
+            constrainTop[i] = nil
+            constrainRight[i] = nil
+            constrainBottom[i] = nil
+        end
+    end
+end
 
 return Camera

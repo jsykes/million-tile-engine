@@ -4,477 +4,6 @@ do
 
 do
 local _ENV = _ENV
-package.preload[ "src.SaveMap" ] = function( ... ) local arg = _G.arg;
-local SaveMap = {}
-
-local json = require("json")
-local lfs = require("lfs")
-
------------------------------------------------------------
-
-SaveMap.saveMap = function(loadedMap, filePath, dir)
-    if not filePath then
-        if loadedMap then
-            filePath = loadedMap
-        else
-            filePath = source
-        end
-    end	
-    local directories = {}
-    local firstIndex = 1
-    for i = 1, string.len(filePath), 1 do
-        if string.sub(filePath, i, i) == "/" then
-            directories[#directories + 1] = string.sub(filePath, firstIndex, i - 1)
-            firstIndex = i + 1
-        end
-    end	
-    local fileName = string.sub(filePath, firstIndex, string.len(filePath))	
-    local dirPath
-    if dir == "Documents" or not dir then
-        dirPath = system.pathForFile("", system.DocumentsDirectory)
-    elseif dir == "Temporary" then
-        dirPath = system.pathForFile("", system.TemporaryDirectory)
-    elseif dir == "Resource" then
-        dirPath = system.pathForFile("", system.ResourceDirectory)
-    end	
-    if #directories > 0 then
-        
-        for i = 1, #directories, 1 do
-            lfs.chdir(dirPath)
-            local exists = false
-            for file in lfs.dir(dirPath) do
-                if file == directories[i] then
-                    exists = true
-                    break
-                end
-            end
-            if not exists then
-                lfs.mkdir(directories[i])
-            end
-            dirPath = lfs.currentdir() .. "/"..directories[i]
-        end		
-    end
-    local finalPath = dirPath.."/"..fileName	
-    
-    local jsonData
-    if not loadedMap then
-        jsonData = json.encode(Map.map)
-    else
-        jsonData = json.encode(Map.mapStorage[loadedMap])		
-    end	
-    local saveData = io.open(finalPath, "w")	
-    saveData:write(jsonData)
-    io.close(saveData)
-    
-end
-
------------------------------------------------------------
-
-return SaveMap
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "src.Xml" ] = function( ... ) local arg = _G.arg;
-local Xml = {}
-
------------------------------------------------------------
-
-local json = require("json")
-
-local Map = require("src.Map")
-
------------------------------------------------------------
-
-Xml.data = nil
-
------------------------------------------------------------
-
-Xml.ToXmlString = function(value)
-    value = string.gsub (value, "&", "&amp;");		-- '&' -> "&amp;"
-    value = string.gsub (value, "<", "&lt;");		-- '<' -> "&lt;"
-    value = string.gsub (value, ">", "&gt;");		-- '>' -> "&gt;"
-    value = string.gsub (value, "\"", "&quot;");	-- '"' -> "&quot;"
-    value = string.gsub(value, "([^%w%&%;%p%\t% ])",
-    function (c) 
-        return string.format("&#x%X;", string.byte(c)) 
-    end);
-    return value;
-end
-
------------------------------------------------------------
-
-Xml.FromXmlString = function(value)
-    value = string.gsub(value, "&#x([%x]+)%;",
-    function(h) 
-        return string.char(tonumber(h,16)) 
-    end);
-    value = string.gsub(value, "&#([0-9]+)%;",
-    function(h) 
-        return string.char(tonumber(h,10)) 
-    end);
-    value = string.gsub (value, "&quot;", "\"");
-    value = string.gsub (value, "&apos;", "'");
-    value = string.gsub (value, "&gt;", ">");
-    value = string.gsub (value, "&lt;", "<");
-    value = string.gsub (value, "&amp;", "&");
-    return value;
-end
-
------------------------------------------------------------
-
-Xml.ParseArgs = function(s)
-    local arg = {}
-    string.gsub(s, "(%w+)=([\"'])(.-)%2", function (w, _, a)
-        arg[w] = Xml.FromXmlString(a);
-    end)
-    return arg
-end
-
------------------------------------------------------------
-
-Xml.loadFile = function(xmlFilename, base)
-    if not base then
-        base = system.ResourceDirectory
-    end
-    
-    local path = system.pathForFile( xmlFilename, base )
-    local hFile, err = io.open(path,"r");
-    
-    if hFile and not err then
-        local xmlText=hFile:read("*a"); -- read file content
-        io.close(hFile);
-        return Xml.ParseXmlText(xmlText),nil;
-    else
-        print( err )
-        return nil
-    end
-end
-
------------------------------------------------------------
-
-Xml.ParseXmlText = function(xmlText)
-    if not Map.mapStorage[Xml.src] then
-        Map.mapStorage[Xml.src] = {}
-    end
-    local layerIndex = 0
-    
-    local stack = {}
-    local top = {name=nil,value=nil,properties={},child={}}
-    table.insert(stack, top)
-    local ni,c,label,xarg, empty
-    local i, j = 1, 1
-    local triggerBase64 = false
-    local triggerXML = false
-    local triggerCSV = false
-    local x, y = 1, 1
-    while true do
-        local ni,j,c,label,xarg, empty = string.find(xmlText, "<(%/?)([%w:]+)(.-)(%/?)>", i)
-        if not ni then break end
-        local text = string.sub(xmlText, i, ni-1);
-        if not string.find(text, "^%s*$") then
-            top.value=(top.value or "")..Xml.FromXmlString(text);
-            if triggerBase64 then
-                triggerBase64 = false
-                --decode base64 directly into Map.map array
-                --------------------------------------------------------------
-                
-                local buffer = 0
-                local pos = 1
-                local bin ={}
-                local mult = 1
-                for i = 1,40 do
-                    bin[i] = mult
-                    mult = mult*2
-                end
-                local base64 = { ['A']=0,['B']=1,['C']=2,['D']=3,['E']=4,['F']=5,['G']=6,['H']=7,['I']=8,
-                    ['J']=9,['K']=10,['L']=11,['M']=12,['N']=13,['O']=14,['P']=15,['Q']=16,
-                    ['R']=17,['S']=18,['T']=19,['U']=20,['V']=21,['W']=22,['X']=23,['Y']=24,
-                    ['Z']=25,['a']=26,['b']=27,['c']=28,['d']=29,['e']=30,['f']=31,['g']=32,
-                    ['h']=33,['i']=34,['j']=35,['k']=36,['l']=37,['m']=38,['n']=39,['o']=40,
-                    ['p']=41,['q']=42,['r']=43,['s']=44,['t']=45,['u']=46,['v']=47,['w']=48,
-                    ['x']=49,['y']=50,['z']=51,['0']=52,['1']=53,['2']=54,['3']=55,['4']=56,
-                    ['5']=57,['6']=58,['7']=59,['8']=60,['9']=61,['+']=62,['/']=63,['=']=nil
-                }
-                local set = "[^%a%d%+%/%=]"
-                
-                Xml.data = string.gsub(top.value, set, "")    
-                
-                local size = 32
-                local val = {}
-                local rawPos = 1
-                local rawSize = #top.value
-                local char = ""
-                
-                while rawPos <= rawSize do
-                    while pos <= size and rawPos <= rawSize do
-                        char = string.sub(top.value,rawPos,rawPos)
-                        if base64[char] ~= nil then
-                            buffer = buffer * bin[7] + base64[char]
-                            pos = pos + 6
-                        end
-                        rawPos = rawPos + 1
-                    end
-                    if char == "=" then 
-                        break 
-                    end
-                    
-                    while pos < 33 do 
-                        buffer = buffer * bin[2] 
-                        pos = pos + 1
-                    end
-                    pos = pos - 32
-                    Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data+1] = math.floor((buffer%bin[33+pos-1])/bin[25+pos-1]) +
-                    math.floor((buffer%bin[25+pos-1])/bin[17+pos-1])*bin[9] +
-                    math.floor((buffer%bin[17+pos-1])/bin[9+pos-1])*bin[17] + 
-                    math.floor((buffer%bin[9+pos-1])/bin[pos])*bin[25]
-                    buffer = buffer % bin[pos]    	
-                end
-                --------------------------------------------------------------
-            end
-            if triggerCSV then
-                triggerCSV = false
-                Map.mapStorage[Xml.src].layers[layerIndex].data = json.decode("["..top.value.."]")
-            end
-        end
-        if empty == "/" then  -- empty element tag
-            if label == "tile" then
-                Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data + 1] = tonumber(xarg:sub(7, xarg:len() - 1))
-            else
-                table.insert(top.child, {name=label,value=nil,properties=Xml.ParseArgs(xarg),child={}})
-            end
-            if label == "layer" or label == "objectgroup" or label == "imagelayer"  then
-                layerIndex = layerIndex + 1
-                if not Map.mapStorage[Xml.src].layers then
-                    Map.mapStorage[Xml.src].layers = {}
-                end
-                Map.mapStorage[Xml.src].layers[layerIndex] = {}
-                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
-            end
-        elseif c == "" then   -- start tag
-            local props = Xml.ParseArgs(xarg)
-            top = {name=label, value=nil, properties=props, child={}}
-            table.insert(stack, top)   -- new level
-            if label == "Map.map" then
-                --
-            end
-            if label == "layer" or label == "objectgroup" or label == "imagelayer" then
-                layerIndex = layerIndex + 1
-                x, y = 1, 1
-                if not Map.mapStorage[Xml.src].layers then
-                    Map.mapStorage[Xml.src].layers = {}
-                end
-                Map.mapStorage[Xml.src].layers[layerIndex] = {}
-                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
-                if label == "layer" then
-                    Map.mapStorage[Xml.src].layers[layerIndex].data = {}
-                    Map.mapStorage[Xml.src].layers[layerIndex].world = {}
-                    Map.mapStorage[Xml.src].layers[layerIndex].world[1] = {}
-                end
-            end
-            if label == "data" then
-                if props.encoding == "base64" then
-                    triggerBase64 = true
-                    if props.compression then
-                        print("Error(loadMap): Layer data compression is not supported. MTE supports CSV, TMX, and Base64(uncompressed).")
-                    end
-                elseif props.encoding == "csv" then
-                    triggerCSV = true
-                elseif not props.encoding then
-                    triggerXML = true
-                end
-            end
-        else  -- end tag
-            local toclose = table.remove(stack)  -- remove top
-            top = stack[#stack]
-            if #stack < 1 then
-                error("XmlParser: nothing to close with "..label)
-            end
-            if toclose.name ~= label then
-                error("XmlParser: trying to close "..toclose.name.." with "..label)
-            end
-            table.insert(top.child, toclose)
-        end
-        i = j+1
-    end
-    local text = string.sub(xmlText, i);
-    if not string.find(text, "^%s*$") then
-        stack[#stack].value=(stack[#stack].value or "")..Xml.FromXmlString(text);
-    end
-    if #stack > 1 then
-        error("XmlParser: unclosed "..stack[stack.n].name)
-    end
-    return stack[1].child[1];
-end
-
------------------------------------------------------------
-
-return Xml
-
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "src.Sprites" ] = function( ... ) local arg = _G.arg;
-local Sprites = {}
-
-Sprites.sprites = {}
-
-Sprites.movingSprites = {}
-
-Sprites.tempObjects = {}
-
-Sprites.holdSprite = nil
-
-return Sprites
-
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "src.DebugStats" ] = function( ... ) local arg = _G.arg;
-local DebugStats = {}
-
-local Camera = require("src.Camera")
-local Map = require("src.Map")
-
------------------------------------------------------------
-
-local prevTime = 0
-local dbTog = 0
-local dCount = 1
-local memory = "0"
-local mod
-local rectCount
-local debugX
-local debugY
-local debugLocX
-local debugLocY
-local debugVelX
-local debugVelY
-local debugAccX
-local debugAccY
-local debugLoading
-local debugMemory
-local debugFPS
-local debugText
-local frameRate
-local frameArray = {}
-local avgFrame = 1
-local lowFrame = 100
-
-DebugStats.debug = function(fps)
-    
-    if not fps then
-        fps = display.fps
-    end	
-    
-    if dbTog == 0 then
-        mod = display.fps / fps
-        local size = 22
-        local scale = 2
-        if display.viewableContentHeight < 500 then
-            size = 14
-            scale = 1
-        end
-        rectCount = display.newText("null", 50 * scale, 80 * scale, native.systemFont, size)
-        debugX = display.newText("null", 50 * scale, 20 * scale, native.systemFont, size)
-        debugY = display.newText("null", 50 * scale, 35 * scale, native.systemFont, size)
-        debugLocX = display.newText("null", 50 * scale, 50 * scale, native.systemFont, size)
-        debugLocY = display.newText("null", 50 * scale, 65 * scale, native.systemFont, size)
-        debugLoading = display.newText("null", display.viewableContentWidth / 2, 10, native.systemFont, size)
-        debugMemory = display.newText("null", 60 * scale, 95 * scale, native.systemFont, size)
-        debugFPS = display.newText("null", 60 * scale, 110 * scale, native.systemFont, size)
-        dbTog = 1		
-        rectCount:setFillColor(1, 1, 1)
-        debugX:setFillColor(1, 1, 1)
-        debugY:setFillColor(1, 1, 1)
-        debugLocX:setFillColor(1, 1, 1)
-        debugLocY:setFillColor(1, 1, 1)
-        debugLoading:setFillColor(1, 1, 1)
-        debugMemory:setFillColor(1, 1, 1)
-        debugFPS:setFillColor(1, 1, 1)
-    end		
-    
-    local layer = Map.refLayer
-    local sumRects = 0
-    
-    for i = 1, #Map.map.layers, 1 do
-        if Map.totalRects[i] then
-            sumRects = sumRects + Map.totalRects[i]
-        end
-    end
-    
-    if Map.map.orientation == Map.Type.Isometric then
-        local cameraX = string.format("%g", Camera.McameraX)
-        local cameraY = string.format("%g", Camera.McameraY)
-        debugX.text = "cameraX: "..cameraX
-        debugX:toFront()
-        debugY.text = "cameraY: "..cameraY
-        debugY:toFront()
-        debugLocX.text = "cameraLocX: "..Camera.McameraLocX	
-        debugLocY.text = "cameraLocY: "..Camera.McameraLocY
-    else
-        local cameraX = string.format("%g", Camera.McameraX)
-        local cameraY = string.format("%g", Camera.McameraY)
-        debugX.text = "cameraX: "..cameraX
-        debugX:toFront()
-        debugY.text = "cameraY: "..cameraY
-        debugY:toFront()
-        debugLocX.text = "cameraLocX: "..Camera.McameraLocX
-        debugLocY.text = "cameraLocY: "..Camera.McameraLocY
-    end
-    
-    debugLocX:toFront()
-    debugLocY:toFront()	
-    
-    rectCount.text = "Total Tiles: "..sumRects
-    rectCount:toFront()
-    dCount = dCount + 1
-    
-    if dCount >= 60 / mod then
-        dCount = 1
-        memory = string.format("%g", collectgarbage("count") / 1000)
-    end	
-    
-    debugMemory.text = "Memory: "..memory.." MB"
-    debugMemory:toFront()
-    
-    local curTime = system.getTimer()
-    local dt = curTime - prevTime
-    prevTime = curTime	
-    local fps = math.floor(1000/dt) * mod	
-    local lowDelay = 20 / mod
-    
-    if #frameArray < lowDelay then
-        frameArray[#frameArray + 1] = fps
-    else
-        local temp = 0
-        for i = 1, #frameArray, 1 do
-            temp = temp + frameArray[i]	
-        end
-        avgFrame = temp / lowDelay
-        frameArray = {}
-    end	
-    
-    debugFPS.text = "FPS: "..fps.."   AVG: "..avgFrame
-    debugFPS:toFront()
-    debugLoading.text = debugText
-    debugLoading:toFront()
-end
-
------------------------------------------------------------
-
-return DebugStats
-
-end
-end
-
-do
-local _ENV = _ENV
 package.preload[ "src.Light" ] = function( ... ) local arg = _G.arg;
 local Light = {}
 
@@ -2169,10 +1698,4873 @@ end
 
 do
 local _ENV = _ENV
+package.preload[ "src.Xml" ] = function( ... ) local arg = _G.arg;
+local Xml = {}
+
+-----------------------------------------------------------
+
+local json = require("json")
+
+local Map = require("src.Map")
+
+-----------------------------------------------------------
+
+Xml.data = nil
+
+-----------------------------------------------------------
+
+Xml.ToXmlString = function(value)
+    value = string.gsub (value, "&", "&amp;");		-- '&' -> "&amp;"
+    value = string.gsub (value, "<", "&lt;");		-- '<' -> "&lt;"
+    value = string.gsub (value, ">", "&gt;");		-- '>' -> "&gt;"
+    value = string.gsub (value, "\"", "&quot;");	-- '"' -> "&quot;"
+    value = string.gsub(value, "([^%w%&%;%p%\t% ])",
+    function (c) 
+        return string.format("&#x%X;", string.byte(c)) 
+    end);
+    return value;
+end
+
+-----------------------------------------------------------
+
+Xml.FromXmlString = function(value)
+    value = string.gsub(value, "&#x([%x]+)%;",
+    function(h) 
+        return string.char(tonumber(h,16)) 
+    end);
+    value = string.gsub(value, "&#([0-9]+)%;",
+    function(h) 
+        return string.char(tonumber(h,10)) 
+    end);
+    value = string.gsub (value, "&quot;", "\"");
+    value = string.gsub (value, "&apos;", "'");
+    value = string.gsub (value, "&gt;", ">");
+    value = string.gsub (value, "&lt;", "<");
+    value = string.gsub (value, "&amp;", "&");
+    return value;
+end
+
+-----------------------------------------------------------
+
+Xml.ParseArgs = function(s)
+    local arg = {}
+    string.gsub(s, "(%w+)=([\"'])(.-)%2", function (w, _, a)
+        arg[w] = Xml.FromXmlString(a);
+    end)
+    return arg
+end
+
+-----------------------------------------------------------
+
+Xml.loadFile = function(xmlFilename, base)
+    if not base then
+        base = system.ResourceDirectory
+    end
+    
+    local path = system.pathForFile( xmlFilename, base )
+    local hFile, err = io.open(path,"r");
+    
+    if hFile and not err then
+        local xmlText=hFile:read("*a"); -- read file content
+        io.close(hFile);
+        return Xml.ParseXmlText(xmlText),nil;
+    else
+        print( err )
+        return nil
+    end
+end
+
+-----------------------------------------------------------
+
+Xml.ParseXmlText = function(xmlText)
+    if not Map.mapStorage[Xml.src] then
+        Map.mapStorage[Xml.src] = {}
+    end
+    local layerIndex = 0
+    
+    local stack = {}
+    local top = {name=nil,value=nil,properties={},child={}}
+    table.insert(stack, top)
+    local ni,c,label,xarg, empty
+    local i, j = 1, 1
+    local triggerBase64 = false
+    local triggerXML = false
+    local triggerCSV = false
+    local x, y = 1, 1
+    while true do
+        local ni,j,c,label,xarg, empty = string.find(xmlText, "<(%/?)([%w:]+)(.-)(%/?)>", i)
+        if not ni then break end
+        local text = string.sub(xmlText, i, ni-1);
+        if not string.find(text, "^%s*$") then
+            top.value=(top.value or "")..Xml.FromXmlString(text);
+            if triggerBase64 then
+                triggerBase64 = false
+                --decode base64 directly into Map.map array
+                --------------------------------------------------------------
+                
+                local buffer = 0
+                local pos = 1
+                local bin ={}
+                local mult = 1
+                for i = 1,40 do
+                    bin[i] = mult
+                    mult = mult*2
+                end
+                local base64 = { ['A']=0,['B']=1,['C']=2,['D']=3,['E']=4,['F']=5,['G']=6,['H']=7,['I']=8,
+                    ['J']=9,['K']=10,['L']=11,['M']=12,['N']=13,['O']=14,['P']=15,['Q']=16,
+                    ['R']=17,['S']=18,['T']=19,['U']=20,['V']=21,['W']=22,['X']=23,['Y']=24,
+                    ['Z']=25,['a']=26,['b']=27,['c']=28,['d']=29,['e']=30,['f']=31,['g']=32,
+                    ['h']=33,['i']=34,['j']=35,['k']=36,['l']=37,['m']=38,['n']=39,['o']=40,
+                    ['p']=41,['q']=42,['r']=43,['s']=44,['t']=45,['u']=46,['v']=47,['w']=48,
+                    ['x']=49,['y']=50,['z']=51,['0']=52,['1']=53,['2']=54,['3']=55,['4']=56,
+                    ['5']=57,['6']=58,['7']=59,['8']=60,['9']=61,['+']=62,['/']=63,['=']=nil
+                }
+                local set = "[^%a%d%+%/%=]"
+                
+                Xml.data = string.gsub(top.value, set, "")    
+                
+                local size = 32
+                local val = {}
+                local rawPos = 1
+                local rawSize = #top.value
+                local char = ""
+                
+                while rawPos <= rawSize do
+                    while pos <= size and rawPos <= rawSize do
+                        char = string.sub(top.value,rawPos,rawPos)
+                        if base64[char] ~= nil then
+                            buffer = buffer * bin[7] + base64[char]
+                            pos = pos + 6
+                        end
+                        rawPos = rawPos + 1
+                    end
+                    if char == "=" then 
+                        break 
+                    end
+                    
+                    while pos < 33 do 
+                        buffer = buffer * bin[2] 
+                        pos = pos + 1
+                    end
+                    pos = pos - 32
+                    Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data+1] = math.floor((buffer%bin[33+pos-1])/bin[25+pos-1]) +
+                    math.floor((buffer%bin[25+pos-1])/bin[17+pos-1])*bin[9] +
+                    math.floor((buffer%bin[17+pos-1])/bin[9+pos-1])*bin[17] + 
+                    math.floor((buffer%bin[9+pos-1])/bin[pos])*bin[25]
+                    buffer = buffer % bin[pos]    	
+                end
+                --------------------------------------------------------------
+            end
+            if triggerCSV then
+                triggerCSV = false
+                Map.mapStorage[Xml.src].layers[layerIndex].data = json.decode("["..top.value.."]")
+            end
+        end
+        if empty == "/" then  -- empty element tag
+            if label == "tile" then
+                Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data + 1] = tonumber(xarg:sub(7, xarg:len() - 1))
+            else
+                table.insert(top.child, {name=label,value=nil,properties=Xml.ParseArgs(xarg),child={}})
+            end
+            if label == "layer" or label == "objectgroup" or label == "imagelayer"  then
+                layerIndex = layerIndex + 1
+                if not Map.mapStorage[Xml.src].layers then
+                    Map.mapStorage[Xml.src].layers = {}
+                end
+                Map.mapStorage[Xml.src].layers[layerIndex] = {}
+                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
+            end
+        elseif c == "" then   -- start tag
+            local props = Xml.ParseArgs(xarg)
+            top = {name=label, value=nil, properties=props, child={}}
+            table.insert(stack, top)   -- new level
+            if label == "Map.map" then
+                --
+            end
+            if label == "layer" or label == "objectgroup" or label == "imagelayer" then
+                layerIndex = layerIndex + 1
+                x, y = 1, 1
+                if not Map.mapStorage[Xml.src].layers then
+                    Map.mapStorage[Xml.src].layers = {}
+                end
+                Map.mapStorage[Xml.src].layers[layerIndex] = {}
+                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
+                if label == "layer" then
+                    Map.mapStorage[Xml.src].layers[layerIndex].data = {}
+                    Map.mapStorage[Xml.src].layers[layerIndex].world = {}
+                    Map.mapStorage[Xml.src].layers[layerIndex].world[1] = {}
+                end
+            end
+            if label == "data" then
+                if props.encoding == "base64" then
+                    triggerBase64 = true
+                    if props.compression then
+                        print("Error(loadMap): Layer data compression is not supported. MTE supports CSV, TMX, and Base64(uncompressed).")
+                    end
+                elseif props.encoding == "csv" then
+                    triggerCSV = true
+                elseif not props.encoding then
+                    triggerXML = true
+                end
+            end
+        else  -- end tag
+            local toclose = table.remove(stack)  -- remove top
+            top = stack[#stack]
+            if #stack < 1 then
+                error("XmlParser: nothing to close with "..label)
+            end
+            if toclose.name ~= label then
+                error("XmlParser: trying to close "..toclose.name.." with "..label)
+            end
+            table.insert(top.child, toclose)
+        end
+        i = j+1
+    end
+    local text = string.sub(xmlText, i);
+    if not string.find(text, "^%s*$") then
+        stack[#stack].value=(stack[#stack].value or "")..Xml.FromXmlString(text);
+    end
+    if #stack > 1 then
+        error("XmlParser: unclosed "..stack[stack.n].name)
+    end
+    return stack[1].child[1];
+end
+
+-----------------------------------------------------------
+
+return Xml
+
+end
+end
+
+do
+local _ENV = _ENV
+package.preload[ "src.Core" ] = function( ... ) local arg = _G.arg;
+local Core = {}
+
+local Camera = require("src.Camera")
+local Map = require("src.Map")
+local Screen = require("src.Screen")
+local Sprites = require("src.Sprites")
+local PhysicsData = require("src.PhysicsData")
+
+
+Core.tileAnimsFrozen = false
+
+local isMoving = {}
+local count = 0
+
+-----------------------------------------------------------
+
+local drawCulledObjects = function(locX, locY, layer)
+    if Map.map.layers[layer].extendedObjects then
+        if locX < 1 - Map.map.locOffsetX then
+            locX = locX + Map.map.layers[layer].width
+        end
+        if locX > Map.map.layers[layer].width - Map.map.locOffsetX then
+            locX = locX - Map.map.layers[layer].width
+        end				
+        
+        if locY < 1 - Map.map.locOffsetY then
+            locY = locY + Map.map.layers[layer].height
+        end
+        if locY > Map.map.layers[layer].height - Map.map.locOffsetY then
+            locY = locY - Map.map.layers[layer].height
+        end
+        
+        if Map.map.layers[layer].extendedObjects[locX] and Map.map.layers[layer].extendedObjects[locX][locY] then
+            for i = #Map.map.layers[layer].extendedObjects[locX][locY], 1, -1 do
+                if Map.map.layers[layer].extendedObjects[locX][locY][i] then
+                    local objectLayer = Map.map.layers[layer].extendedObjects[locX][locY][i][1]
+                    local objectKey =  Map.map.layers[layer].extendedObjects[locX][locY][i][2]
+                    local object = Map.map.layers[objectLayer].objects[objectKey]
+                    if not object.properties.wasDrawn then
+                        local sprite = drawObject(object, objectLayer, objectKey)
+                        sprite.x = object.cullData[1]
+                        sprite.y = object.cullData[2]
+                        sprite.width = object.cullData[3]
+                        sprite.height = object.cullData[4]
+                        sprite.roation = object.cullData[5]
+                        
+                        for j = #object.cullData[6], 1, -1 do
+                            local lx = object.cullData[6][j][1]
+                            local ly = object.cullData[6][j][2]
+                            local index = object.cullData[6][j][3]
+                            Map.map.layers[objectLayer].extendedObjects[lx][ly][index] = nil
+                        end
+                    end
+                    Map.map.layers[layer].extendedObjects[locX][locY][i] = nil
+                end
+            end
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+local drawLargeTile = function(locX, locY, layer, owner)
+    
+    if locX < 1 - Map.map.locOffsetX then
+        locX = locX + Map.map.layers[layer].width
+    end
+    if locX > Map.map.layers[layer].width - Map.map.locOffsetX then
+        locX = locX - Map.map.layers[layer].width
+    end				
+    
+    if locY < 1 - Map.map.locOffsetY then
+        locY = locY + Map.map.layers[layer].height
+    end
+    if locY > Map.map.layers[layer].height - Map.map.locOffsetY then
+        locY = locY - Map.map.layers[layer].height
+    end
+    if Map.map.layers[layer].largeTiles[locX] and Map.map.layers[layer].largeTiles[locX][locY] then
+        for i = 1, #Map.map.layers[layer].largeTiles[locX][locY], 1 do
+            local frameIndex = Map.map.layers[layer].largeTiles[locX][locY][i][1]
+            local lx = Map.map.layers[layer].largeTiles[locX][locY][i][2]
+            local ly = Map.map.layers[layer].largeTiles[locX][locY][i][3]
+            
+            if not Map.tileObjects[layer][lx][ly] then
+                M.updateTile({locX = lx, locY = ly, layer = layer})
+            end
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+local cullLargeTile = function(locX, locY, layer, force)
+    
+    local tlocx, tlocy = locX, locY
+    if locX < 1 - Map.map.locOffsetX then
+        locX = locX + Map.map.layers[layer].width
+    end
+    if locX > Map.map.layers[layer].width - Map.map.locOffsetX then
+        locX = locX - Map.map.layers[layer].width
+    end				
+    
+    if locY < 1 - Map.map.locOffsetY then
+        locY = locY + Map.map.layers[layer].height
+    end
+    if locY > Map.map.layers[layer].height - Map.map.locOffsetY then
+        locY = locY - Map.map.layers[layer].height
+    end
+    
+    if Map.map.layers[layer].largeTiles[locX] and Map.map.layers[layer].largeTiles[locX][locY] then
+        for i = 1, #Map.map.layers[layer].largeTiles[locX][locY], 1 do
+            local frameIndex = Map.map.layers[layer].largeTiles[locX][locY][i][1]
+            local lx = Map.map.layers[layer].largeTiles[locX][locY][i][2]
+            local ly = Map.map.layers[layer].largeTiles[locX][locY][i][3]
+            
+            if Map.tileObjects[layer][lx][ly] then
+                local frameIndex = Map.map.layers[layer].world[lx][ly]
+                local tileSetIndex = 1
+                for i = 1, #Map.map.tilesets, 1 do
+                    if frameIndex >= Map.map.tilesets[i].firstgid then
+                        tileSetIndex = i
+                    else
+                        break
+                    end
+                end
+                
+                local mT = Map.map.tilesets[tileSetIndex]
+                if mT.tilewidth > Map.map.tilewidth or mT.tileheight > Map.map.tileheight  then
+                    local width = math.ceil(mT.tilewidth / Map.map.tilewidth)
+                    local height = math.ceil(mT.tileheight / Map.map.tileheight)
+                    local left, top, right, bottom = lx, ly - height + 1, lx + width - 1, ly
+                    if (left > Map.masterGroup[layer].vars.camera[3] or right < Map.masterGroup[layer].vars.camera[1]or
+                        top > Map.masterGroup[layer].vars.camera[4] or bottom < Map.masterGroup[layer].vars.camera[2]) or force then
+                        if force then
+                            M.updateTile({locX = lx, locY = ly, layer = layer, tile = -1, forceCullLargeTile = true})
+                        else
+                            M.updateTile({locX = lx, locY = ly, layer = layer, tile = -1})
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Core.update = function()
+    if Camera.touchScroll[1] and Camera.touchScroll[6] then
+        local velX = (Camera.touchScroll[2] - Camera.touchScroll[4]) / Map.masterGroup.xScale
+        local velY = (Camera.touchScroll[3] - Camera.touchScroll[5]) / Map.masterGroup.yScale
+        
+        --print(velX, velY)
+        Camera.moveCamera(velX, velY)
+        Camera.touchScroll[2] = Camera.touchScroll[4]
+        Camera.touchScroll[3] = Camera.touchScroll[5]	
+    end	
+    
+    count556 = 0
+    local lights = ""
+    
+    Screen.UpdateScreenBounds()
+    
+    --PROCESS SPRITES
+    if not Sprites.spritesFrozen then
+        local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+        local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+        if Map.map.orientation == Map.Type.Isometric then
+            local isoPos = Map.isoUntransform2(cameraX, cameraY)
+            cameraX = isoPos[1]
+            cameraY = isoPos[2]
+        end
+        local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+        local cameraLocY = math.ceil(cameraY / Map.map.tileheight)			
+        Camera.McameraX, Camera.McameraY = cameraX, cameraY
+        Camera.McameraLocX = cameraLocX
+        Camera.McameraLocY = cameraLocY
+        
+        local processObject = function(object, lyr)
+            if not object.layer then
+                object.layer = lyr
+            end
+            local i = object.layer
+            object.level = Map.getLevel(i)				
+            if not object.name then
+                local spriteName = ""..object.x.."_"..object.y.."_"..i
+                if Sprites.sprites[spriteName] then
+                    local tempName = spriteName
+                    local counter = 1
+                    while Sprites.sprites[tempName] do
+                        tempName = ""..spriteName..counter
+                        counter = counter + 1
+                    end
+                    spriteName = tempName
+                end
+                object.name = spriteName
+                if not Sprites.sprites[spriteName] then
+                    Sprites.sprites[spriteName] = sprite
+                end
+            end	
+            
+            if not Light.pointLightSource then
+                Light.pointLightSource = object
+            end				
+            
+            if object.lighting then
+                local mL = Map.map.layers[i]
+                if object.objType ~= 3 then
+                    if not object.color then
+                        object.color = {1, 1, 1}
+                    end
+                else
+                    for i = 1, object.numChildren, 1 do
+                        if object[i]._class then
+                            if object.color and not object[i].color then
+                                object[i].color = object.color
+                            end
+                            if not object[i].color then
+                                object[i].color = {1, 1, 1}
+                            end
+                        end
+                    end
+                end
+            end				
+            
+            if object.offsetX then
+                --object.anchorX = (((object.levelWidth or object.width) / 2) - object.offsetX) / (object.levelWidth or object.width)
+            end
+            if object.offsetY then
+                --object.anchorY = (((object.levelHeight or object.height) / 2) - object.offsetY) / (object.levelHeight or object.height)		
+            end		
+            
+            if Map.map.orientation == Map.Type.Isometric then
+                --Clear Lighting (ISO)
+                if object.light then
+                    if not object.light.created then
+                        object.light.created = true
+                        if not object.light.id then
+                            object.light.id = Light.lightIDs
+                        end
+                        Light.lightIDs = Light.lightIDs + 1						
+                        if not object.light.maxRange then
+                            local maxRange = object.light.range[1]
+                            for l = 1, 3, 1 do
+                                if object.light.range[l] > maxRange then
+                                    maxRange = object.light.range[l]
+                                end
+                            end
+                            object.light.maxRange = maxRange
+                        end		
+                        if not object.light.levelPosX then
+                            object.light.levelPosX = object.levelPosX or object.x
+                            object.light.levelPosY = object.levelPosY or object.y
+                        end		
+                        if not object.light.alternatorCounter then
+                            object.light.alternatorCounter = 1
+                        end		
+                        if object.light.rays then
+                            object.light.areaIndex = 1
+                        end		
+                        if object.light.layerRelative then
+                            object.light.layer = i + object.light.layerRelative
+                            if object.light.layer < 1 then
+                                object.light.layer = 1
+                            end
+                            if object.light.layer > #Map.map.layers then
+                                object.light.layer = #Map.map.layers
+                            end
+                        end						
+                        if not object.light.layer then
+                            object.light.layer = i
+                        end						
+                        object.light.level = object.level
+                        object.light.dynamic = true
+                        object.light.area = {}
+                        Map.map.lights[object.light.id] = object.light
+                    else
+                        if Light.lightingData.refreshCounter == 1 then
+                            if object.light.rays then
+                                object.light.areaIndex = 1
+                            end			
+                            local length = #object.light.area
+                            for i = length, 1, -1 do
+                                local locX = object.light.area[i][1]
+                                local locY = object.light.area[i][2]
+                                object.light.area[i] = nil
+                                if Camera.worldWrapX then
+                                    if locX < 1 - Map.map.locOffsetX then
+                                        locX = locX + Map.map.width
+                                    end
+                                    if locX > Map.map.width - Map.map.locOffsetX then
+                                        locX = locX - Map.map.width
+                                    end
+                                end
+                                if Camera.worldWrapY then
+                                    if locY < 1 - Map.map.locOffsetY then
+                                        locY = locY + Map.map.height
+                                    end
+                                    if locY > Map.map.height - Map.map.locOffsetY then
+                                        locY = locY - Map.map.height
+                                    end
+                                end
+                                if object.light.layer then
+                                    if Map.map.layers[object.light.layer].lighting[locX] and Map.map.layers[object.light.layer].lighting[locX][locY] then
+                                        Map.map.layers[object.light.layer].lighting[locX][locY][object.light.id] = nil
+                                        Map.map.lightToggle[locX][locY] = tonumber(system.getTimer())
+                                    end	
+                                end
+                            end			
+                            if object.toggleRemoveLight then
+                                object.light = nil
+                                object.toggleRemoveLight = false				
+                            end
+                        end
+                    end
+                end
+                
+                
+                if Sprites.movingSprites[object] and not Sprites.holdSprite then
+                    local index = Sprites.movingSprites[object]
+                    local velX = object.deltaX[index]
+                    local velY = object.deltaY[index]
+                    Sprites.movingSprites[object] = index - 1					
+                    object.levelPosX = object.levelPosX + velX
+                    object.levelPosY = object.levelPosY + velY					
+                    if Sprites.movingSprites[object] == 0 then
+                        Sprites.movingSprites[object] = nil
+                        object.deltaX = nil
+                        object.deltaY = nil
+                        object.isMoving = nil
+                        if object.onComplete then
+                            local temp = object.onComplete
+                            object.onComplete = nil
+                            local event = { name = "spriteMoveComplete", sprite = object}
+                            temp(event)
+                        end
+                    end
+                end
+                
+                if Sprites.holdSprite == object then
+                    if object.transition then
+                        transition.pause(object.transition)
+                    end
+                    object.paused = true
+                elseif object.transition then
+                    if object.paused then
+                        transition.resume(object.transition)
+                        object.paused = nil
+                    end
+                    if object.transition._transitionHasCompleted then
+                        object.transition = nil
+                    elseif object.transitionDelta then
+                        object.transitionDelta = object.transitionDelta - 1
+                    end
+                end
+                
+                --Update Position (ISO)
+                local isoPos = Map.isoTransform2(object.levelPosX, object.levelPosY)
+                object.x = isoPos[1]
+                object.y = isoPos[2]					
+                if Camera.layerWrapX[i] and (object.wrapX == nil or object.wrapX == true) then
+                    while object.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) do
+                        object.levelPosX = object.levelPosX + Map.map.layers[i].width * Map.map.tilewidth
+                    end
+                    while object.levelPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) do
+                        object.levelPosX = object.levelPosX - Map.map.layers[i].width * Map.map.tilewidth
+                    end						
+                    if cameraX - object.levelPosX < Map.map.layers[i].width * Map.map.tilewidth / -2 then
+                        --wrap around to the left
+                        local vector = Map.isoVector(Map.map.layers[i].width * Map.map.tilewidth * -1, 0)
+                        object:translate(vector[1], vector[2])
+                    elseif cameraX - object.levelPosX > Map.map.layers[i].width * Map.map.tilewidth / 2 then
+                        --wrap around to the right
+                        local vector = Map.isoVector(Map.map.layers[i].width * Map.map.tilewidth * 1, 0)
+                        object:translate(vector[1], vector[2])
+                    end
+                end					
+                if Camera.layerWrapY[i] and (object.wrapY == nil or object.wrapY == true) then
+                    while object.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
+                        object.levelPosY = object.levelPosY + Map.map.layers[i].height * Map.map.tileheight
+                    end
+                    while object.levelPosY > Map.map.layers[i].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) do
+                        object.levelPosY = object.levelPosY - Map.map.layers[i].height * Map.map.tileheight
+                    end						
+                    if cameraY - object.levelPosY < Map.map.layers[i].height * Map.map.tileheight / -2 then
+                        --wrap around to the left
+                        local vector = Map.isoVector(0, Map.map.layers[i].height * Map.map.tileheight * -1)
+                        object:translate(vector[1], vector[2])
+                    elseif cameraY - object.levelPosY > Map.map.layers[i].height * Map.map.tileheight / 2 then
+                        --wrap around to the right
+                        local vector = Map.isoVector(0, Map.map.layers[i].height * Map.map.tileheight * 1)
+                        object:translate(vector[1], vector[2])
+                    end
+                end
+                
+                --CONSTRAIN TO MAP (ISO)
+                if object.constrainToMap then
+                    local constraints = object.constrainToMap
+                    local pushX, pushY = 0, 0						
+                    if constraints[1] then
+                        if object.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
+                            pushX = 1 - (Map.map.locOffsetX * Map.map.tilewidth) - object.levelPosX
+                        end
+                    end
+                    if constraints[2] then
+                        if object.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) then
+                            pushY = 1 - (Map.map.locOffsetY * Map.map.tileheight) - object.levelPosY
+                        end
+                    end
+                    if constraints[3] then
+                        if object.levelPosX > (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth then
+                            pushX = (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth - object.levelPosX
+                        end
+                    end
+                    if constraints[4] then
+                        if object.levelPosY > (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight then
+                            pushY = (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight - object.levelPosY
+                        end
+                    end						
+                    object:translate(pushX, pushY)
+                end
+                
+                object.locX = math.ceil(object.levelPosX / Map.map.tilewidth)
+                object.locY = math.ceil(object.levelPosY / Map.map.tileheight)
+                
+                --Handle Offscreen Physics (ISO)
+                if PhysicsData.managePhysicsStates and (object.managePhysicsStates == nil or object.managePhysicsStates == true) then
+                    if object.bodyType and Map.masterGroup[i].vars.camera then
+                        if object.offscreenPhysics then
+                            local topLeftX, topLeftY = Map.screenToLoc(object.contentBounds.xMin, object.contentBounds.yMin)
+                            local topRightX, topRightY = Map.screenToLoc(object.contentBounds.xMax, object.contentBounds.yMin)
+                            local bottomLeftX, bottomLeftY = Map.screenToLoc(object.contentBounds.xMin, object.contentBounds.yMax)
+                            local bottomRightX, bottomRightY = Map.screenToLoc(object.contentBounds.xMax, object.contentBounds.yMax)							
+                            local left = topLeftX - 1
+                            local top = topRightY - 1
+                            local right = bottomRightX + 1
+                            local bottom = bottomLeftY + 1							
+                            if not object.bounds or (object.bounds[1] ~= left or object.bounds[2] ~= top or object.bounds[3] ~= right or object.bounds[4] ~= bottom) then
+                                if object.physicsRegion then
+                                    for p = 1, #object.physicsRegion, 1 do
+                                        local lx = object.physicsRegion[p][1]
+                                        local ly = object.physicsRegion[p][2]
+                                        if (lx < Map.masterGroup[i].vars.camera[1] or lx > Map.masterGroup[i].vars.camera[3]) or
+                                            (ly < Map.masterGroup[i].vars.camera[2] or ly > Map.masterGroup[i].vars.camera[4]) then
+                                            Core.updateTile({locX = object.physicsRegion[p][1], locY = object.physicsRegion[p][2], layer = object.physicsRegion[p][3], tile = -1,
+                                                owner = object
+                                            })
+                                        end
+                                    end
+                                end
+                                object.physicsRegion = nil
+                                object.physicsRegion = {}
+                                for lx = left, right, 1 do
+                                    for ly = top, bottom, 1 do
+                                        for j = 1, #Map.map.layers, 1 do
+                                            if (lx < Map.masterGroup[j].vars.camera[1] or lx > Map.masterGroup[j].vars.camera[3]) or
+                                                (ly < Map.masterGroup[j].vars.camera[2] or ly > Map.masterGroup[j].vars.camera[4]) then
+                                                local owner = Core.updateTile({locX = lx, locY = ly, layer = j, onlyPhysics = false, owner = object})
+                                                if owner then
+                                                    object.physicsRegion[#object.physicsRegion + 1] = {lx, ly, j}
+                                                end
+                                            end
+                                        end
+                                    end
+                                end
+                                object.bounds = {left, top, right, bottom}
+                            end
+                        else
+                            local locX = math.ceil(object.levelPosX / Map.map.tilewidth)
+                            local locY = math.ceil(object.levelPosY / Map.map.tilewidth)
+                            if (locX < Map.masterGroup[i].vars.camera[1] or locX > Map.masterGroup[i].vars.camera[3]) or
+                                (locY < Map.masterGroup[i].vars.camera[2] or locY > Map.masterGroup[i].vars.camera[4]) then
+                                if not object.properties or not object.properties.isBodyActive then
+                                    object.isBodyActive = false
+                                end
+                            elseif (locX <= Map.masterGroup[i].vars.camera[1] or locX >= Map.masterGroup[i].vars.camera[3]) or
+                                (locY <= Map.masterGroup[i].vars.camera[2] or locY >= Map.masterGroup[i].vars.camera[4]) then
+                                if not object.properties or not object.properties.isAwake then
+                                    object.isAwake = false
+                                end
+                                if not object.properties or not object.properties.isBodyActive then
+                                    object.isBodyActive = true
+                                end
+                            else
+                                if not object.properties or not object.properties.isAwake then
+                                    object.isAwake = true
+                                end
+                                if not object.properties or not object.properties.isBodyActive then
+                                    object.isBodyActive = true
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                --Sort Sprites (ISO)
+                if object.locX >= 1 and object.locY >= 1 and not object.isMoving then
+                    if Map.isoSort == 1 then
+                        local temp = object.locX + object.locY - 1
+                        if temp > Map.map.height + Map.map.width then
+                            temp = Map.map.height + Map.map.width
+                        end
+                        if temp ~= object.row then
+                            Map.masterGroup[i][temp]:insert(object)
+                        end
+                    end
+                end
+                
+                --Apply Lighting to Non-Light Objects, Trigger Events (ISO)
+                if object.lighting then
+                    if Camera.enableLighting then
+                        object.litBy = {}
+                        local locX = object.locX
+                        local locY = object.locY
+                        local mapLayerFalloff = Map.map.properties.lightLayerFalloff
+                        local mapLevelFalloff = Map.map.properties.lightLevelFalloff
+                        local red, green, blue = Map.map.layers[i].redLight, Map.map.layers[i].greenLight, Map.map.layers[i].blueLight
+                        for k = 1, #Map.map.layers, 1 do
+                            if Map.map.layers[k].lighting[locX] then
+                                if Map.map.layers[k].lighting[locX][locY] then
+                                    local temp = Map.map.layers[k].lighting[locX][locY]
+                                    local tempSources = {}
+                                    for key,value in pairs(object.prevLitBy) do
+                                        tempSources[key] = true
+                                    end
+                                    for key,value in pairs(temp) do
+                                        local levelDiff = math.abs(Map.getLevel(i) - Map.map.lights[key].level)
+                                        local layerDiff = math.abs(i - Map.map.lights[key].layer)							
+                                        local layerFalloff, levelFalloff
+                                        if Map.map.lights[key].layerFalloff then
+                                            layerFalloff = Map.map.lights[key].layerFalloff
+                                        else
+                                            layerFalloff = mapLayerFalloff
+                                        end							
+                                        if Map.map.lights[key].levelFalloff then
+                                            levelFalloff = Map.map.lights[key].levelFalloff
+                                        else
+                                            levelFalloff = mapLevelFalloff
+                                        end							
+                                        local tR = temp[key].light[1] - (levelDiff * levelFalloff[1]) - (layerDiff * layerFalloff[1])
+                                        local tG = temp[key].light[2] - (levelDiff * levelFalloff[2]) - (layerDiff * layerFalloff[2])
+                                        local tB = temp[key].light[3] - (levelDiff * levelFalloff[3]) - (layerDiff * layerFalloff[3])							
+                                        if object.lightingListeners[key] then
+                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
+                                            if not object.prevLitBy[key] then
+                                                object.prevLitBy[key] = true
+                                                event.phase = "began"
+                                            else
+                                                event.phase = "maintained"
+                                            end
+                                            object:dispatchEvent( event )
+                                            tempSources[key] = nil
+                                        end							
+                                        if tR > red then
+                                            red = tR
+                                        end
+                                        if tG > green then
+                                            green = tG
+                                        end
+                                        if tB > blue then
+                                            blue = tB
+                                        end							
+                                        object.litBy[#object.litBy + 1] = key							
+                                    end
+                                    for key,value in pairs(tempSources) do
+                                        if object.lightingListeners[key] then
+                                            object.prevLitBy[key] = nil
+                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
+                                            event.phase = "ended"
+                                            object:dispatchEvent( event )
+                                        end
+                                    end
+                                else						
+                                    for key,value in pairs(object.prevLitBy) do
+                                        if object.lightingListeners[key] and not Map.map.lights[key] then
+                                            object.prevLitBy[key] = nil
+                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
+                                            event.phase = "ended"
+                                            object:dispatchEvent( event )
+                                        elseif object.lightingListeners[key] and Map.map.lights[key].layer == k then
+                                            object.prevLitBy[key] = nil
+                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
+                                            event.phase = "ended"
+                                            object:dispatchEvent( event )
+                                        end
+                                    end						
+                                end
+                            end
+                        end
+                        if object.objType < 3 then
+                            object:setFillColor(red * object.color[1], green * object.color[2], blue * object.color[3])
+                        elseif object.objType == 3 then
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setFillColor(red * object[i].color[1], green * object[i].color[2], blue * object[i].color[3])
+                                end
+                            end
+                        elseif object.objType == 4 then
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setStrokeColor(red * object[i].color[1], green * object[i].color[2], blue * object[i].color[3])
+                                end
+                            end
+                        end
+                    else
+                        if object.objType < 3 then
+                            local mL = Map.map.layers[i]
+                            object:setFillColor(mL.redLight * object.color[1], mL.greenLight * object.color[2], mL.blueLight * object.color[3])
+                        elseif object.objType == 3 then
+                            local mL = Map.map.layers[i]
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setFillColor(mL.redLight * object[i].color[1], mL.greenLight * object[i].color[2], mL.blueLight * object[i].color[3])
+                                end
+                            end
+                        elseif object.objType == 4 then
+                            local mL = Map.map.layers[i]
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setStrokeColor(mL.redLight * object[i].color[1], mL.greenLight * object[i].color[2], mL.blueLight * object[i].color[3])
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                --Cast Light (ISO)
+                if Camera.enableLighting and object.light then
+                    if Light.lightingData.refreshCounter == 1 then
+                        object.light.levelPosX = object.levelPosX
+                        object.light.levelPosY = object.levelPosY
+                    end					
+                    if Light.lightingData.refreshCounter == 1 then
+                        if object.levelPosX > 0 - (Map.map.locOffsetX * Map.map.tilewidth) and object.levelPosX <= (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth then
+                            if object.levelPosY > 0 - (Map.map.locOffsetY * Map.map.tileheight) and object.levelPosY <= (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight then
+                                if object.light.rays then
+                                    for k = 1, #object.light.rays, 1 do
+                                        Light.processLightRay(object.light.layer, object.light, object.light.rays[k])
+                                    end
+                                else								
+                                    Light.processLight(object.light.layer, object.light)									
+                                    local length = #object.light.area
+                                    local tempML = {}
+                                    local oLx = object.light.locX
+                                    local oLy = object.light.locY
+                                    local oLl = object.light.layer
+                                    local oLi = object.light.id
+                                    local mL = Map.map.layers
+                                    for i = length, 1, -1 do
+                                        local locX = object.light.area[i][1]
+                                        local locY = object.light.area[i][2]
+                                        local locXt = locX
+                                        local locYt = locY						
+                                        if Camera.worldWrapX then
+                                            if locX < 1 - Map.map.locOffsetX then
+                                                locX = locX + Map.map.width
+                                            end
+                                            if locX > Map.map.width - Map.map.locOffsetX then
+                                                locX = locX - Map.map.width
+                                            end
+                                        end
+                                        if Camera.worldWrapY then
+                                            if locY < 1 - Map.map.locOffsetY then
+                                                locY = locY + Map.map.height
+                                            end
+                                            if locY > Map.map.height - Map.map.locOffsetY then
+                                                locY = locY - Map.map.height
+                                            end
+                                        end						
+                                        local neighbor1 = {0, 0, 0}
+                                        local neighbor2 = {0, 0, 0}										
+                                        if locX ~= oLx and locY ~= oLy and Map.map.lightingData[mL[oLl].world[locX][locY]]then											
+                                            if locXt > oLx and locYt < oLy then
+                                                --top right
+                                                if oLl then
+                                                    if mL[oLl].lighting[locX - 1] and mL[oLl].lighting[locX][locY] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX - 1][locY]] then
+                                                            if mL[oLl].lighting[locX - 1][locY] then
+                                                                if mL[oLl].lighting[locX - 1][locY][oLi] then
+                                                                    neighbor1 = mL[oLl].lighting[locX - 1][locY][oLi].light
+                                                                    neighbor1[4] = locX - 1
+                                                                    neighbor1[5] = locY
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY + 1] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY + 1]] then
+                                                            if mL[oLl].lighting[locX][locY + 1] then
+                                                                if mL[oLl].lighting[locX][locY + 1][oLi] then
+                                                                    neighbor2 = mL[oLl].lighting[locX][locY + 1][oLi].light
+                                                                    neighbor2[4] = locX
+                                                                    neighbor2[5] = locY + 1
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                end
+                                            elseif locXt > oLx and locYt > oLy then
+                                                --bottom right
+                                                if oLl then
+                                                    if mL[oLl].lighting[locX - 1] and mL[oLl].lighting[locX][locY] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX - 1][locY]] then
+                                                            if mL[oLl].lighting[locX - 1][locY] then
+                                                                if mL[oLl].lighting[locX - 1][locY][oLi] then
+                                                                    neighbor1 = mL[oLl].lighting[locX - 1][locY][oLi].light
+                                                                    neighbor1[4] = locX - 1
+                                                                    neighbor1[5] = locY
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY - 1] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY - 1]] then
+                                                            if mL[oLl].lighting[locX][locY - 1] then
+                                                                if mL[oLl].lighting[locX][locY - 1][oLi] then
+                                                                    neighbor2 = mL[oLl].lighting[locX][locY - 1][oLi].light
+                                                                    neighbor2[4] = locX
+                                                                    neighbor2[5] = locY - 1
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                end
+                                            elseif locXt < oLx and locYt > oLy then
+                                                --bottom left
+                                                if oLl then
+                                                    if mL[oLl].lighting[locX + 1] and mL[oLl].lighting[locX][locY] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX + 1][locY]] then
+                                                            if mL[oLl].lighting[locX + 1][locY] then
+                                                                if mL[oLl].lighting[locX + 1][locY][oLi] then
+                                                                    neighbor1 = mL[oLl].lighting[locX + 1][locY][oLi].light
+                                                                    neighbor1[4] = locX + 1
+                                                                    neighbor1[5] = locY
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY - 1] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY - 1]] then
+                                                            if mL[oLl].lighting[locX][locY - 1] then
+                                                                if mL[oLl].lighting[locX][locY - 1][oLi] then
+                                                                    neighbor2 = mL[oLl].lighting[locX][locY - 1][oLi].light
+                                                                    neighbor2[4] = locX
+                                                                    neighbor2[5] = locY - 1
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                end
+                                            elseif locXt < oLx and locYt < oLy then
+                                                --top left
+                                                if oLl then
+                                                    if mL[oLl].lighting[locX + 1] and mL[oLl].lighting[locX][locY] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX + 1][locY]] then
+                                                            if mL[oLl].lighting[locX + 1][locY] then
+                                                                if mL[oLl].lighting[locX + 1][locY][oLi] then
+                                                                    neighbor1 = mL[oLl].lighting[locX + 1][locY][oLi].light
+                                                                    neighbor1[4] = locX + 1
+                                                                    neighbor1[5] = locY
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY + 1] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY + 1]] then
+                                                            if mL[oLl].lighting[locX][locY + 1] then
+                                                                if mL[oLl].lighting[locX][locY + 1][oLi] then
+                                                                    neighbor2 = mL[oLl].lighting[locX][locY + 1][oLi].light
+                                                                    neighbor2[4] = locX
+                                                                    neighbor2[5] = locY + 1
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                end
+                                            end						
+                                            local neighbor						
+                                            if neighbor1[1] + neighbor1[2] + neighbor1[3] > neighbor2[1] + neighbor2[2] + neighbor2[3] then
+                                                neighbor = neighbor1
+                                            else
+                                                neighbor = neighbor2
+                                            end							
+                                            if neighbor[1] + neighbor[2] + neighbor[3] > 0 then
+                                                if math.abs( (neighbor[1] + neighbor[2] + neighbor[3]) - (mL[oLl].lighting[locX][locY][oLi].light[1] +
+                                                    mL[oLl].lighting[locX][locY][oLi].light[2] + 
+                                                    mL[oLl].lighting[locX][locY][oLi].light[3]) ) > 
+                                                    (object.light.falloff[1] + object.light.falloff[2] + object.light.falloff[3]) * 1.5 then
+                                                    local distance = math.sqrt( ((locXt - oLx) * (locXt - oLx)) + 
+                                                    ((locYt - oLy) * (locYt - oLy))  )								
+                                                    local red = object.light.source[1] - (object.light.falloff[1] * distance)
+                                                    local green = object.light.source[2] - (object.light.falloff[2] * distance)
+                                                    local blue = object.light.source[3] - (object.light.falloff[3] * distance)
+                                                    tempML[#tempML + 1] = {locX, locY, red, green, blue}
+                                                end
+                                            end
+                                        end						
+                                    end					
+                                    for i = 1, #tempML, 1 do
+                                        mL[oLl].lighting[tempML[i][1]][tempML[i][2]][oLi].light = {tempML[i][3], 
+                                        tempML[i][4], tempML[i][5]}
+                                    end
+                                end
+                            end
+                        end				
+                    end	
+                    if object.lighting then
+                        if object.objType < 3 then
+                            local oL = object.light.source
+                            object:setFillColor(oL[1]*object.color[1], oL[2]*object.color[2], oL[3]*object.color[3])
+                        elseif object.objType == 3 then
+                            local oL = object.light.source
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setFillColor(oL[1]*object[i].color[1], oL[2]*object[i].color[2], oL[3]*object[i].color[3])
+                                end
+                            end
+                        elseif object.objType == 4 then
+                            local oL = object.light.source
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setStrokeColor(oL[1]*object[i].color[1], oL[2]*object[i].color[2], oL[3]*object[i].color[3])
+                                end
+                            end
+                        end
+                    end
+                end
+                ------
+            else
+                --Clear Lighting
+                if object.light then
+                    if not object.light.created then
+                        object.light.created = true
+                        if not object.light.id then
+                            object.light.id = Light.lightIDs
+                        end
+                        Light.lightIDs = Light.lightIDs + 1						
+                        if not object.light.maxRange then
+                            local maxRange = object.light.range[1]
+                            for l = 1, 3, 1 do
+                                if object.light.range[l] > maxRange then
+                                    maxRange = object.light.range[l]
+                                end
+                            end
+                            object.light.maxRange = maxRange
+                        end		
+                        if not object.light.levelPosX then
+                            object.light.levelPosX = object.levelPosX or object.x
+                            object.light.levelPosY = object.levelPosY or object.y
+                        end		
+                        if not object.light.alternatorCounter then
+                            object.light.alternatorCounter = 1
+                        end		
+                        if object.light.rays then
+                            object.light.areaIndex = 1
+                        end		
+                        if object.light.layerRelative then
+                            object.light.layer = i + object.light.layerRelative
+                            if object.light.layer < 1 then
+                                object.light.layer = 1
+                            end
+                            if object.light.layer > #Map.map.layers then
+                                object.light.layer = #Map.map.layers
+                            end
+                        end						
+                        if not object.light.layer then
+                            object.light.layer = i
+                        end						
+                        object.light.level = object.level
+                        object.light.dynamic = true
+                        object.light.area = {}
+                        Map.map.lights[object.light.id] = object.light
+                    else
+                        if Light.lightingData.refreshCounter == 1 then
+                            if object.light.rays then
+                                object.light.areaIndex = 1
+                            end			
+                            local length = #object.light.area
+                            for i = length, 1, -1 do
+                                local locX = object.light.area[i][1]
+                                local locY = object.light.area[i][2]
+                                object.light.area[i] = nil
+                                if Camera.worldWrapX then
+                                    if locX < 1 - Map.map.locOffsetX then
+                                        locX = locX + Map.map.width
+                                    end
+                                    if locX > Map.map.width - Map.map.locOffsetX then
+                                        locX = locX - Map.map.width
+                                    end
+                                end
+                                if Camera.worldWrapY then
+                                    if locY < 1 - Map.map.locOffsetY then
+                                        locY = locY + Map.map.height
+                                    end
+                                    if locY > Map.map.height - Map.map.locOffsetY then
+                                        locY = locY - Map.map.height
+                                    end
+                                end
+                                if object.light.layer then
+                                    if Map.map.layers[object.light.layer].lighting[locX] and Map.map.layers[object.light.layer].lighting[locX][locY] then
+                                        Map.map.layers[object.light.layer].lighting[locX][locY][object.light.id] = nil
+                                        Map.map.lightToggle[locX][locY] = tonumber(system.getTimer())
+                                    end	
+                                end
+                            end			
+                            if object.toggleRemoveLight then
+                                object.light = nil
+                                object.toggleRemoveLight = false				
+                            end
+                        end
+                    end
+                end
+                
+                
+                if Sprites.movingSprites[object] and not Sprites.holdSprite then
+                    local index = Sprites.movingSprites[object]
+                    local velX = object.deltaX[index]
+                    local velY = object.deltaY[index]
+                    Sprites.movingSprites[object] = index - 1						
+                    object:translate(velX, velY)						
+                    if Sprites.movingSprites[object] == 0 then
+                        Sprites.movingSprites[object] = nil
+                        object.deltaX = nil
+                        object.deltaY = nil
+                        object.isMoving = nil
+                        if object.onComplete then
+                            local temp = object.onComplete
+                            object.onComplete = nil
+                            local event = { name = "spriteMoveComplete", sprite = object}
+                            temp(event)
+                        end
+                    end
+                end
+                
+                if Sprites.holdSprite == object then
+                    if object.transition then
+                        transition.pause(object.transition)
+                    end
+                    object.paused = true
+                elseif object.transition then
+                    if object.paused then
+                        transition.resume(object.transition)
+                        object.paused = nil
+                    end
+                    if object.transition._transitionHasCompleted then
+                        object.transition = nil
+                    elseif object.transitionDelta then
+                        object.transitionDelta = object.transitionDelta - 1
+                    end
+                end
+                
+                --Update Position
+                object.levelPosX = object.x
+                object.levelPosY = object.y				
+                if Camera.layerWrapX[i] and (object.wrapX == nil or object.wrapX == true) then
+                    while object.levelPosX < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
+                        object.levelPosX = object.levelPosX + Map.map.layers[i].width * Map.map.tilewidth
+                    end
+                    while object.levelPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetY * Map.map.tileheight) do
+                        object.levelPosX = object.levelPosX - Map.map.layers[i].width * Map.map.tilewidth
+                    end				
+                    if cameraX - object.x < Map.map.layers[i].width * Map.map.tilewidth / -2 then
+                        --wrap around to the left
+                        object.x = object.x - Map.map.layers[i].width * Map.map.tilewidth
+                    elseif cameraX - object.x > Map.map.layers[i].width * Map.map.tilewidth / 2 then
+                        --wrap around to the right
+                        object.x = object.x + Map.map.layers[i].width * Map.map.tilewidth
+                    end
+                end
+                if Camera.layerWrapY[i] and (object.wrapY == nil or object.wrapY == true) then
+                    while object.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
+                        object.levelPosY = object.levelPosY + Map.map.layers[i].height * Map.map.tileheight
+                    end
+                    while object.levelPosY > Map.map.layers[i].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) do
+                        object.levelPosY = object.levelPosY - Map.map.layers[i].height * Map.map.tileheight
+                    end					
+                    if cameraY - object.y < Map.map.layers[i].height * Map.map.tileheight / -2 then
+                        --wrap around to the left
+                        object.y = object.y - Map.map.layers[i].height * Map.map.tileheight
+                    elseif cameraY - object.y > Map.map.layers[i].height * Map.map.tileheight / 2 then
+                        --wrap around to the right
+                        object.y = object.y + Map.map.layers[i].height * Map.map.tileheight
+                    end
+                end
+                
+                --CONSTRAIN TO MAP
+                if object.constrainToMap then
+                    local constraints = object.constrainToMap
+                    local pushX, pushY = 0, 0
+                    if constraints[1] then
+                        if object.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
+                            pushX = 1 - (Map.map.locOffsetX * Map.map.tilewidth) - object.levelPosX
+                        end
+                    end
+                    if constraints[2] then
+                        if object.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) then
+                            pushY = 1 - (Map.map.locOffsetY * Map.map.tileheight) - object.levelPosY
+                        end
+                    end
+                    if constraints[3] then
+                        if object.levelPosX > (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth then
+                            pushX = (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth - object.levelPosX
+                        end
+                    end
+                    if constraints[4] then
+                        if object.levelPosY > (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight then
+                            pushY = (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight - object.levelPosY
+                        end
+                    end
+                    object:translate(pushX, pushY)
+                end
+                
+                object.locX = math.ceil(object.levelPosX / Map.map.tilewidth)
+                object.locY = math.ceil(object.levelPosY / Map.map.tileheight)
+                
+                --Handle Offscreen Physics
+                --print(object.name, PhysicsData.managePhysicsStates, object.managePhysicsStates, object.managePhysicsStates)
+                if PhysicsData.managePhysicsStates and (object.managePhysicsStates == nil or object.managePhysicsStates == true) then
+                    if object.bodyType and Map.masterGroup[i].vars.camera then
+                        local tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMin, object.contentBounds.yMin)
+                        local leftTop = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
+                        tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMax, object.contentBounds.yMax)
+                        local rightBottom = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
+                        local left = math.ceil(leftTop[1] / Map.map.tilewidth) - 1
+                        local top = math.ceil(leftTop[2] / Map.map.tileheight) - 1
+                        local right = math.ceil(rightBottom[1] / Map.map.tilewidth) + 1
+                        local bottom = math.ceil(rightBottom[2] / Map.map.tileheight) + 1
+                        
+                        if object.bodyType ~= "static" then
+                            if object.bounds and object.physicsRegion and #object.physicsRegion > 0 then
+                                for p = #object.physicsRegion, 1, -1 do
+                                    local lx = object.physicsRegion[p][1]
+                                    local ly = object.physicsRegion[p][2]
+                                    local layer = object.physicsRegion[p][3]
+                                    if lx < object.bounds[1] or lx > object.bounds[3] or ly < object.bounds[2] or ly > object.bounds[4] then
+                                        if lx < Map.masterGroup[i].vars.camera[1] or lx > Map.masterGroup[i].vars.camera[3] or
+                                            ly < Map.masterGroup[i].vars.camera[2] or ly > Map.masterGroup[i].vars.camera[4] then
+                                            Core.updateTile({locX = lx, locY = ly, layer = layer, tile = -1, owner = object})
+                                            --cullLargeTile(lx, ly, layer, nil, object)
+                                            table.remove(object.physicsRegion, p)
+                                        end
+                                    end
+                                    
+                                end
+                            else
+                                object.physicsRegion = {}
+                            end
+                            if not object.bounds or object.bounds[1] ~= left or object.bounds[2] ~= top or object.bounds[3] ~= right or object.bounds[4] ~= bottom then
+                                object.bounds = {left, top, right, bottom}
+                            end
+                            for lx = left, right, 1 do
+                                for ly = top, bottom, 1 do
+                                    for j = 1, #Map.map.layers, 1 do
+                                        if lx < 1 - Map.map.locOffsetX then
+                                            lx = lx + Map.map.layers[j].width
+                                        end
+                                        if lx > Map.map.layers[j].width - Map.map.locOffsetX then
+                                            lx = lx - Map.map.layers[j].width
+                                        end				
+                                        
+                                        if ly < 1 - Map.map.locOffsetY then
+                                            ly = ly + Map.map.layers[j].height
+                                        end
+                                        if ly > Map.map.layers[j].height - Map.map.locOffsetY then
+                                            ly = ly - Map.map.layers[j].height
+                                        end
+                                        if not Map.tileObjects[j][lx][ly] and Map.map.layers[j].world[lx][ly] ~= 0 then
+                                            local owner = Core.updateTile({locX = lx, locY = ly, layer = j, onlyPhysics = true, owner = object})
+                                            if owner then
+                                                object.physicsRegion[#object.physicsRegion + 1] = {lx, ly, j}
+                                            end
+                                            
+                                        end
+                                        
+                                        local tX, tY = lx, ly
+                                        if tX < 1 - Map.map.locOffsetX then
+                                            tX = tX + Map.map.layers[j].width
+                                        end
+                                        if tX > Map.map.layers[j].width - Map.map.locOffsetX then
+                                            tX = tX - Map.map.layers[j].width
+                                        end				
+                                        
+                                        if tY < 1 - Map.map.locOffsetY then
+                                            tY = tY + Map.map.layers[j].height
+                                        end
+                                        if tY > Map.map.layers[j].height - Map.map.locOffsetY then
+                                            tY = tY - Map.map.layers[j].height
+                                        end
+                                        
+                                        if Map.map.layers[j].largeTiles[tX] and Map.map.layers[j].largeTiles[tX][tY] then
+                                            for i = 1, #Map.map.layers[j].largeTiles[tX][tY], 1 do
+                                                local frameIndex = Map.map.layers[j].largeTiles[tX][tY][i][1]
+                                                local ltx = Map.map.layers[j].largeTiles[tX][tY][i][2]
+                                                local lty = Map.map.layers[j].largeTiles[tX][tY][i][3]
+                                                
+                                                if not Map.tileObjects[j][ltx][lty] then
+                                                    local owner = Core.updateTile({locX = ltx, locY = lty, layer = j, onlyPhysics = true, owner = object})
+                                                    if owner then
+                                                        object.physicsRegion[#object.physicsRegion + 1] = {ltx, lty, j}
+                                                    end
+                                                end
+                                            end
+                                        end
+                                        
+                                        drawCulledObjects(lx, ly, j)
+                                    end
+                                end
+                            end
+                        end
+                        if not object.offscreenPhysics then
+                            local tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMin, object.contentBounds.yMin)
+                            local leftTop = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
+                            tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMax, object.contentBounds.yMax)
+                            local rightBottom = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
+                            local left = math.ceil(leftTop[1] / Map.map.tilewidth)
+                            local top = math.ceil(leftTop[2] / Map.map.tileheight)
+                            local right = math.ceil(rightBottom[1] / Map.map.tilewidth)
+                            local bottom = math.ceil(rightBottom[2] / Map.map.tileheight)
+                            
+                            if left < Map.masterGroup[i].vars.camera[1] and right > Map.masterGroup[i].vars.camera[1] then
+                                left = Map.masterGroup[i].vars.camera[1]
+                            end
+                            if top < Map.masterGroup[i].vars.camera[2] and bottom > Map.masterGroup[i].vars.camera[2] then
+                                top = Map.masterGroup[i].vars.camera[2]
+                            end
+                            if right < Map.masterGroup[i].vars.camera[3] and left > Map.masterGroup[i].vars.camera[3] then
+                                right = Map.masterGroup[i].vars.camera[3]
+                            end
+                            if bottom > Map.masterGroup[i].vars.camera[4] and top < Map.masterGroup[i].vars.camera[4] then
+                                bottom = Map.masterGroup[i].vars.camera[4]
+                            end
+                            
+                            if (left >= Map.masterGroup[i].vars.camera[1] and left <= Map.masterGroup[i].vars.camera[3] and
+                                top >= Map.masterGroup[i].vars.camera[2] and top <= Map.masterGroup[i].vars.camera[4]) or
+                                
+                                (right >= Map.masterGroup[i].vars.camera[1] and right <= Map.masterGroup[i].vars.camera[3] and
+                                top >= Map.masterGroup[i].vars.camera[2] and top <= Map.masterGroup[i].vars.camera[4]) or
+                                
+                                (left >= Map.masterGroup[i].vars.camera[1] and left <= Map.masterGroup[i].vars.camera[3] and
+                                bottom >= Map.masterGroup[i].vars.camera[2] and bottom <= Map.masterGroup[i].vars.camera[4]) or
+                                
+                                (right >= Map.masterGroup[i].vars.camera[1] and right <= Map.masterGroup[i].vars.camera[3] and
+                                bottom >= Map.masterGroup[i].vars.camera[2] and bottom <= Map.masterGroup[i].vars.camera[4])then
+                                --onscreen
+                                if not object.properties or not object.properties.isAwake then
+                                    object.isAwake = true
+                                end
+                                if not object.properties or not object.properties.isBodyActive then
+                                    object.isBodyActive = true
+                                end
+                            elseif (left >= Map.masterGroup[i].vars.camera[1] - 1 and left <= Map.masterGroup[i].vars.camera[3] + 1 and
+                                top >= Map.masterGroup[i].vars.camera[2] - 1 and top <= Map.masterGroup[i].vars.camera[4] + 1) or
+                                
+                                (right >= Map.masterGroup[i].vars.camera[1] - 1 and right <= Map.masterGroup[i].vars.camera[3] + 1 and
+                                top >= Map.masterGroup[i].vars.camera[2] - 1 and top <= Map.masterGroup[i].vars.camera[4] + 1) or
+                                
+                                (left >= Map.masterGroup[i].vars.camera[1] - 1 and left <= Map.masterGroup[i].vars.camera[3] + 1 and
+                                bottom >= Map.masterGroup[i].vars.camera[2] - 1 and bottom <= Map.masterGroup[i].vars.camera[4] + 1) or
+                                
+                                (right >= Map.masterGroup[i].vars.camera[1] - 1 and right <= Map.masterGroup[i].vars.camera[3] + 1 and
+                                bottom >= Map.masterGroup[i].vars.camera[2] - 1 and bottom <= Map.masterGroup[i].vars.camera[4] + 1)then
+                                --edge
+                                if not object.properties or not object.properties.isAwake then
+                                    object.isAwake = false
+                                end
+                                if not object.properties or not object.properties.isBodyActive then
+                                    object.isBodyActive = true
+                                end
+                            else
+                                --offscreen
+                                if not object.properties or not object.properties.isBodyActive then
+                                    object.isBodyActive = false
+                                end
+                            end
+                            
+                            
+                        end
+                    end
+                end
+                
+                --Sort Sprites
+                if object.sortSprite and Sprites.enableSpriteSorting then
+                    local adjustedPosition = object.levelPosY + ((Map.map.locOffsetY - 1) * Map.map.tileheight)
+                    
+                    --local tempY =math.ceil(math.round(object.levelPosY) / (Map.map.tileheight / Map.spriteSortResolution))	
+                    --print(object.levelPosY, adjustedPosition)		
+                    
+                    local tempY =math.ceil(math.round(adjustedPosition) / (Map.map.tileheight / Map.spriteSortResolution))	
+                    --print(tempY)
+                    if tempY > (Map.map.layers[i].height * Map.spriteSortResolution) then
+                        while tempY > Map.map.layers[i].height do
+                            tempY = tempY - (Map.map.layers[i].height * Map.spriteSortResolution)
+                        end
+                    elseif tempY < 1 then
+                        while tempY < 1 do
+                            tempY = tempY + (Map.map.layers[i].height * Map.spriteSortResolution)
+                        end
+                    end		
+                    if not object.depthBuffer or object.depthBuffer ~= tempY then
+                        if object.name == "player" then
+                            --print("this", object.name, tempY, Map.masterGroup[i][tempY])
+                        end
+                        for key,value in pairs( Map.masterGroup[i][2][tempY]) do
+                            --print(key,value)
+                        end
+                        --print(Map.masterGroup[i], Map.masterGroup[i][2], tempY, Map.masterGroup[i][2].numChildren)
+                        Map.masterGroup[i][2][tempY]:insert(object)
+                    end
+                    object.depthBuffer = tempY						
+                    if object.sortSpriteOnce then
+                        object.sortSprite = false
+                    end		
+                end
+                
+                --Apply HeightMap
+                if Map.enableHeightMaps then
+                    if object.heightMap then
+                        if not object.nativeWidth then
+                            object.nativeWidth = object.width
+                            object.nativeHeight = object.height
+                        end
+                        local hM = object.heightMap
+                        local offsetX = object.nativeWidth / 2
+                        local offsetY = object.nativeHeight / 2
+                        local x = object.x
+                        local y = object.y
+                        local oP = object.path
+                        oP["x1"] = (((cameraX - (x - offsetX)) * (1 + (hM[1] or 0))) - (cameraX - (x - offsetX))) * -1
+                        oP["y1"] = (((cameraY - (y - offsetY)) * (1 + (hM[1] or 0))) - (cameraY - (y - offsetY))) * -1
+                        
+                        oP["x2"] = (((cameraX - (x - offsetX)) * (1 + (hM[2] or 0))) - (cameraX - (x - offsetX))) * -1
+                        oP["y2"] = (((cameraY - (y + offsetY)) * (1 + (hM[2] or 0))) - (cameraY - (y + offsetY))) * -1
+                        
+                        oP["x3"] = (((cameraX - (x + offsetX)) * (1 + (hM[3] or 0))) - (cameraX - (x + offsetX))) * -1
+                        oP["y3"] = (((cameraY - (y + offsetY)) * (1 + (hM[3] or 0))) - (cameraY - (y + offsetY))) * -1
+                        
+                        oP["x4"] = (((cameraX - (x + offsetX)) * (1 + (hM[4] or 0))) - (cameraX - (x + offsetX))) * -1
+                        oP["y4"] = (((cameraY - (y - offsetY)) * (1 + (hM[4] or 0))) - (cameraY - (y - offsetY))) * -1
+                    elseif (Map.map.layers[i].heightMap or Map.map.heightMap) and object.followHeightMap then
+                        if not object.nativeWidth then
+                            object.nativeWidth = object.width
+                            object.nativeHeight = object.height
+                        end							
+                        local mH
+                        if Map.map.heightMap then
+                            mH = Map.map.heightMap
+                        else
+                            mH = Map.map.layers[i].heightMap
+                        end							
+                        local offsetX = object.nativeWidth / 2 
+                        local offsetY = object.nativeHeight / 2 
+                        local x = object.x
+                        local y = object.y							
+                        local lX = object.levelPosX / Map.map.tilewidth
+                        local lY = object.levelPosY / Map.map.tileheight
+                        local toggleX = math.round(lX)
+                        local toggleY = math.round(lY)
+                        local locX1, locX2, locY1, locY2
+                        if toggleX < lX then
+                            locX2 = math.ceil(object.levelPosX / Map.map.tilewidth)
+                            locX1 = locX2 - 1
+                            if locX1 < 1 then
+                                locX1 = #mH
+                            end	
+                        else
+                            locX1 = math.ceil(object.levelPosX / Map.map.tilewidth)
+                            locX2 = locX1 + 1
+                            if locX2 > #mH then
+                                locX2 = 1
+                            end	
+                        end
+                        if toggleY < lY then
+                            locY2 = math.ceil(object.levelPosY / Map.map.tileheight)
+                            locY1 = locY2 - 1
+                            if locY1 < 1 then
+                                locY1 = #mH[1]
+                            end	
+                        else
+                            locY1 = math.ceil(object.levelPosY / Map.map.tileheight)
+                            locY2 = locY1 + 1
+                            if locY2 > #mH[1] then
+                                locY2 = 1
+                            end	
+                        end							
+                        local locX = object.locX
+                        local locY = object.locY							
+                        local tX1 = locX1 * Map.map.tilewidth - (Map.map.tilewidth / 2)
+                        local tY1 = locY1 * Map.map.tileheight - (Map.map.tileheight / 2)
+                        local tX2 = locX2 * Map.map.tilewidth - (Map.map.tilewidth / 2)
+                        local tY2 = locY2 * Map.map.tileheight - (Map.map.tileheight / 2)
+                        local area1 = (object.levelPosX - tX1) * (object.levelPosY - tY1)
+                        local area2 = (object.levelPosX - tX1) * (tY2 - object.levelPosY)
+                        local area3 = (tX2 - object.levelPosX) * (tY2 - object.levelPosY)
+                        local area4 = (tX2 - object.levelPosX) * (object.levelPosY - tY1)
+                        local area = Map.map.tilewidth * Map.map.tileheight							
+                        local height1 = mH[locX1][locY1] * ((area3) / area)
+                        local height2 = mH[locX1][locY2] * ((area4) / area)
+                        local height3 = mH[locX2][locY2] * ((area1) / area)
+                        local height4 = mH[locX2][locY1] * ((area2) / area)							
+                        local tempHeight = height1 + height2 + height3 + height4
+                        local oP = object.path
+                        oP["x1"] = (((cameraX - (x - offsetX)) * (1 + tempHeight)) - (cameraX - (x - offsetX))) * -1
+                        oP["y1"] = (((cameraY - (y - offsetY)) * (1 + tempHeight)) - (cameraY - (y - offsetY))) * -1
+                        
+                        oP["x2"] = (((cameraX - (x - offsetX)) * (1 + tempHeight)) - (cameraX - (x - offsetX))) * -1
+                        oP["y2"] = (((cameraY - (y + offsetY)) * (1 + tempHeight)) - (cameraY - (y + offsetY))) * -1
+                        
+                        oP["x3"] = (((cameraX - (x + offsetX)) * (1 + tempHeight)) - (cameraX - (x + offsetX))) * -1
+                        oP["y3"] = (((cameraY - (y + offsetY)) * (1 + tempHeight)) - (cameraY - (y + offsetY))) * -1
+                        
+                        oP["x4"] = (((cameraX - (x + offsetX)) * (1 + tempHeight)) - (cameraX - (x + offsetX))) * -1
+                        oP["y4"] = (((cameraY - (y - offsetY)) * (1 + tempHeight)) - (cameraY - (y - offsetY))) * -1							
+                    end
+                end
+                
+                --Apply Lighting to Non-Light Objects, Trigger Events
+                if object.lighting then
+                    if Camera.enableLighting then
+                        object.litBy = {}
+                        local locX = object.locX
+                        local locY = object.locY
+                        local mapLayerFalloff = Map.map.properties.lightLayerFalloff
+                        local mapLevelFalloff = Map.map.properties.lightLevelFalloff
+                        local red, green, blue = Map.map.layers[i].redLight, Map.map.layers[i].greenLight, Map.map.layers[i].blueLight
+                        if Map.map.perlinLighting then
+                            red = red * map.perlinLighting[locX][locY]
+                            green = green * map.perlinLighting[locX][locY]
+                            blue = blue * map.perlinLighting[locX][locY]
+                        elseif Map.map.layers[i].perlinLighting then
+                            red = red * map.layers[i].perlinLighting[locX][locY]
+                            green = green * map.layers[i].perlinLighting[locX][locY]
+                            blue = blue * map.layers[i].perlinLighting[locX][locY]
+                        end                        
+                        for k = 1, #Map.map.layers, 1 do
+                            if Map.map.layers[k].lighting[locX] then
+                                if Map.map.layers[k].lighting[locX][locY] then
+                                    local temp = Map.map.layers[k].lighting[locX][locY]
+                                    local tempSources = {}
+                                    for key,value in pairs(object.prevLitBy) do
+                                        tempSources[key] = true
+                                    end
+                                    for key,value in pairs(temp) do
+                                        local levelDiff = math.abs(Map.getLevel(i) - Map.map.lights[key].level)
+                                        local layerDiff = math.abs(i - Map.map.lights[key].layer)							
+                                        local layerFalloff, levelFalloff
+                                        if Map.map.lights[key].layerFalloff then
+                                            layerFalloff = Map.map.lights[key].layerFalloff
+                                        else
+                                            layerFalloff = mapLayerFalloff
+                                        end							
+                                        if Map.map.lights[key].levelFalloff then
+                                            levelFalloff = Map.map.lights[key].levelFalloff
+                                        else
+                                            levelFalloff = mapLevelFalloff
+                                        end							
+                                        local tR = temp[key].light[1] - (levelDiff * levelFalloff[1]) - (layerDiff * layerFalloff[1])
+                                        local tG = temp[key].light[2] - (levelDiff * levelFalloff[2]) - (layerDiff * layerFalloff[2])
+                                        local tB = temp[key].light[3] - (levelDiff * levelFalloff[3]) - (layerDiff * layerFalloff[3])							
+                                        if object.lightingListeners[key] then
+                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
+                                            if not object.prevLitBy[key] then
+                                                object.prevLitBy[key] = true
+                                                event.phase = "began"
+                                            else
+                                                event.phase = "maintained"
+                                            end
+                                            object:dispatchEvent( event )
+                                            tempSources[key] = nil
+                                        end							
+                                        if tR > red then
+                                            red = tR
+                                        end
+                                        if tG > green then
+                                            green = tG
+                                        end
+                                        if tB > blue then
+                                            blue = tB
+                                        end							
+                                        object.litBy[#object.litBy + 1] = key							
+                                    end
+                                    for key,value in pairs(tempSources) do
+                                        if object.lightingListeners[key] then
+                                            object.prevLitBy[key] = nil
+                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
+                                            event.phase = "ended"
+                                            object:dispatchEvent( event )
+                                        end
+                                    end
+                                else						
+                                    for key,value in pairs(object.prevLitBy) do
+                                        if object.lightingListeners[key] and not Map.map.lights[key] then
+                                            object.prevLitBy[key] = nil
+                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
+                                            event.phase = "ended"
+                                            object:dispatchEvent( event )
+                                        elseif object.lightingListeners[key] and Map.map.lights[key].layer == k then
+                                            object.prevLitBy[key] = nil
+                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
+                                            event.phase = "ended"
+                                            object:dispatchEvent( event )
+                                        end
+                                    end						
+                                end
+                            end
+                        end
+                        if object.objType < 3 then
+                            object:setFillColor(red*object.color[1], green*object.color[2], blue*object.color[3])
+                        elseif object.objType == 3 then
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setFillColor(red*object[i].color[1], green*object[i].color[2], blue*object[i].color[3])
+                                end
+                            end
+                        elseif object.objType == 4 then
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setStrokeColor(red*object[i].color[1], green*object[i].color[2], blue*object[i].color[3])
+                                end
+                            end
+                        end
+                    else
+                        local locX = object.locX
+                        local locY = object.locY
+                        local red, green, blue = Map.map.layers[i].redLight, Map.map.layers[i].greenLight, Map.map.layers[i].blueLight
+                        if Map.map.perlinLighting then
+                            local perlinLightValue = Map.map.perlinLighting[locX][locY]
+                            red = red * perlinLightValue
+                            green = green * perlinLightValue
+                            blue = blue * perlinLightValue
+                        elseif Map.map.layers[i].perlinLighting then
+                            local perlinLightValue = Map.map.layers[i].perlinLighting[locX][locY]
+                            red = red * perlinLightValue
+                            green = green * perlinLightValue
+                            blue = blue * perlinLightValue
+                        end
+                        if object.objType < 3 then
+                            object:setFillColor(red*object.color[1], green*object.color[2], blue*object.color[3])
+                        elseif object.objType == 3 then
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setFillColor(red*object[i].color[1], green*object[i].color[2], blue*object[i].color[3])
+                                end
+                            end
+                        elseif object.objType == 4 then
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setStrokeColor(red*object[i].color[1], green*object[i].color[2], blue*object[i].color[3])
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                --Cast Light
+                if Camera.enableLighting and object.light then
+                    if Light.lightingData.refreshCounter == 1 then
+                        object.light.levelPosX = object.levelPosX
+                        object.light.levelPosY = object.levelPosY
+                    end					
+                    if Light.lightingData.refreshCounter == 1 then
+                        if object.levelPosX > 0 - (Map.map.locOffsetX * Map.map.tilewidth) and object.levelPosX <= (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth then
+                            if object.levelPosY > 0 - (Map.map.locOffsetY * Map.map.tileheight) and object.levelPosY <= (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight then
+                                if object.light.rays then
+                                    for k = 1, #object.light.rays, 1 do
+                                        Light.processLightRay(object.light.layer, object.light, object.light.rays[k])
+                                    end
+                                else								
+                                    Light.processLight(object.light.layer, object.light)									
+                                    local length = #object.light.area
+                                    local tempML = {}
+                                    local oLx = object.light.locX
+                                    local oLy = object.light.locY
+                                    local oLl = object.light.layer
+                                    local oLi = object.light.id
+                                    local mL = Map.map.layers
+                                    for i = length, 1, -1 do
+                                        local locX = object.light.area[i][1]
+                                        local locY = object.light.area[i][2]
+                                        local locXt = locX
+                                        local locYt = locY						
+                                        if Camera.worldWrapX then
+                                            if locX < 1 - Map.map.locOffsetX then
+                                                locX = locX + Map.map.width
+                                            end
+                                            if locX > Map.map.width - Map.map.locOffsetX then
+                                                locX = locX - Map.map.width
+                                            end
+                                        end
+                                        if Camera.worldWrapY then
+                                            if locY < 1 - Map.map.locOffsetY then
+                                                locY = locY + Map.map.height
+                                            end
+                                            if locY > Map.map.height - Map.map.locOffsetY then
+                                                locY = locY - Map.map.height
+                                            end
+                                        end						
+                                        local neighbor1 = {0, 0, 0}
+                                        local neighbor2 = {0, 0, 0}										
+                                        if locX ~= oLx and locY ~= oLy and Map.map.lightingData[mL[oLl].world[locX][locY]]then											
+                                            if locXt > oLx and locYt < oLy then
+                                                --top right
+                                                if oLl then
+                                                    if mL[oLl].lighting[locX - 1] and mL[oLl].lighting[locX][locY] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX - 1][locY]] then
+                                                            if mL[oLl].lighting[locX - 1][locY] then
+                                                                if mL[oLl].lighting[locX - 1][locY][oLi] then
+                                                                    neighbor1 = mL[oLl].lighting[locX - 1][locY][oLi].light
+                                                                    neighbor1[4] = locX - 1
+                                                                    neighbor1[5] = locY
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY + 1] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY + 1]] then
+                                                            if mL[oLl].lighting[locX][locY + 1] then
+                                                                if mL[oLl].lighting[locX][locY + 1][oLi] then
+                                                                    neighbor2 = mL[oLl].lighting[locX][locY + 1][oLi].light
+                                                                    neighbor2[4] = locX
+                                                                    neighbor2[5] = locY + 1
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                end
+                                            elseif locXt > oLx and locYt > oLy then
+                                                --bottom right
+                                                if oLl then
+                                                    if mL[oLl].lighting[locX - 1] and mL[oLl].lighting[locX][locY] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX - 1][locY]] then
+                                                            if mL[oLl].lighting[locX - 1][locY] then
+                                                                if mL[oLl].lighting[locX - 1][locY][oLi] then
+                                                                    neighbor1 = mL[oLl].lighting[locX - 1][locY][oLi].light
+                                                                    neighbor1[4] = locX - 1
+                                                                    neighbor1[5] = locY
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY - 1] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY - 1]] then
+                                                            if mL[oLl].lighting[locX][locY - 1] then
+                                                                if mL[oLl].lighting[locX][locY - 1][oLi] then
+                                                                    neighbor2 = mL[oLl].lighting[locX][locY - 1][oLi].light
+                                                                    neighbor2[4] = locX
+                                                                    neighbor2[5] = locY - 1
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                end
+                                            elseif locXt < oLx and locYt > oLy then
+                                                --bottom left
+                                                if oLl then
+                                                    if mL[oLl].lighting[locX + 1] and mL[oLl].lighting[locX][locY] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX + 1][locY]] then
+                                                            if mL[oLl].lighting[locX + 1][locY] then
+                                                                if mL[oLl].lighting[locX + 1][locY][oLi] then
+                                                                    neighbor1 = mL[oLl].lighting[locX + 1][locY][oLi].light
+                                                                    neighbor1[4] = locX + 1
+                                                                    neighbor1[5] = locY
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY - 1] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY - 1]] then
+                                                            if mL[oLl].lighting[locX][locY - 1] then
+                                                                if mL[oLl].lighting[locX][locY - 1][oLi] then
+                                                                    neighbor2 = mL[oLl].lighting[locX][locY - 1][oLi].light
+                                                                    neighbor2[4] = locX
+                                                                    neighbor2[5] = locY - 1
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                end
+                                            elseif locXt < oLx and locYt < oLy then
+                                                --top left
+                                                if oLl then
+                                                    if mL[oLl].lighting[locX + 1] and mL[oLl].lighting[locX][locY] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX + 1][locY]] then
+                                                            if mL[oLl].lighting[locX + 1][locY] then
+                                                                if mL[oLl].lighting[locX + 1][locY][oLi] then
+                                                                    neighbor1 = mL[oLl].lighting[locX + 1][locY][oLi].light
+                                                                    neighbor1[4] = locX + 1
+                                                                    neighbor1[5] = locY
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY + 1] then
+                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY + 1]] then
+                                                            if mL[oLl].lighting[locX][locY + 1] then
+                                                                if mL[oLl].lighting[locX][locY + 1][oLi] then
+                                                                    neighbor2 = mL[oLl].lighting[locX][locY + 1][oLi].light
+                                                                    neighbor2[4] = locX
+                                                                    neighbor2[5] = locY + 1
+                                                                end
+                                                            end
+                                                        end
+                                                    end	
+                                                end
+                                            end						
+                                            local neighbor						
+                                            if neighbor1[1] + neighbor1[2] + neighbor1[3] > neighbor2[1] + neighbor2[2] + neighbor2[3] then
+                                                neighbor = neighbor1
+                                            else
+                                                neighbor = neighbor2
+                                            end							
+                                            if neighbor[1] + neighbor[2] + neighbor[3] > 0 then
+                                                if math.abs( (neighbor[1] + neighbor[2] + neighbor[3]) - (mL[oLl].lighting[locX][locY][oLi].light[1] +
+                                                    mL[oLl].lighting[locX][locY][oLi].light[2] + 
+                                                    mL[oLl].lighting[locX][locY][oLi].light[3]) ) > 
+                                                    (object.light.falloff[1] + object.light.falloff[2] + object.light.falloff[3]) * 1.5 then
+                                                    local distance = math.sqrt( ((locXt - oLx) * (locXt - oLx)) + 
+                                                    ((locYt - oLy) * (locYt - oLy))  ) 									
+                                                    local red = object.light.source[1] - (object.light.falloff[1] * distance)
+                                                    local green = object.light.source[2] - (object.light.falloff[2] * distance)
+                                                    local blue = object.light.source[3] - (object.light.falloff[3] * distance)
+                                                    tempML[#tempML + 1] = {locX, locY, red, green, blue}
+                                                end
+                                            end
+                                        end						
+                                    end					
+                                    for i = 1, #tempML, 1 do
+                                        mL[oLl].lighting[tempML[i][1]][tempML[i][2]][oLi].light = {tempML[i][3], 
+                                        tempML[i][4], tempML[i][5]}
+                                    end
+                                end
+                            end
+                        end				
+                    end	
+                    if object.lighting then
+                        if object.objType < 3 then
+                            local oL = object.light.source
+                            object:setFillColor(oL[1]*object.color[1], oL[2]*object.color[2], oL[3]*object.color[3])
+                        elseif object.objType == 3 then
+                            local oL = object.light.source
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setFillColor(oL[1]*object[i].color[1], oL[2]*object[i].color[2], oL[3]*object[i].color[3])
+                                end
+                            end
+                        elseif object.objType == 4 then
+                            local oL = object.light.source
+                            for i = 1, object.numChildren, 1 do
+                                if object[i]._class then
+                                    object[i]:setStrokeColor(oL[1]*object[i].color[1], oL[2]*object[i].color[2], oL[3]*object[i].color[3])
+                                end
+                            end
+                        end
+                    end
+                end
+                
+                --Cull Object
+                if Map.masterGroup[i].vars.camera and object.objectKey and ((object.properties and object.properties.cull == "true") or (Map.map.layers[i].properties and Map.map.layers[i].properties.cullObjects == "true")) then
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMin, object.contentBounds.yMin)
+                    local leftTop = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
+                    tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMax, object.contentBounds.yMax)
+                    local rightBottom = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
+                    local tleft = math.ceil(leftTop[1] / Map.map.tilewidth)
+                    local ttop = math.ceil(leftTop[2] / Map.map.tileheight)
+                    local tright = math.ceil(rightBottom[1] / Map.map.tilewidth)
+                    local tbottom = math.ceil(rightBottom[2] / Map.map.tileheight)
+                    
+                    local left, top, right, bottom = tleft, ttop, tright, tbottom
+                    if tleft < Map.masterGroup[i].vars.camera[1] and tright > Map.masterGroup[i].vars.camera[1] then
+                        left = Map.masterGroup[i].vars.camera[1]
+                    end
+                    if ttop < Map.masterGroup[i].vars.camera[2] and tbottom > Map.masterGroup[i].vars.camera[2] then
+                        top = Map.masterGroup[i].vars.camera[2]
+                    end
+                    if tright < Map.masterGroup[i].vars.camera[3] and tleft > Map.masterGroup[i].vars.camera[3] then
+                        right = Map.masterGroup[i].vars.camera[3]
+                    end
+                    if tbottom > Map.masterGroup[i].vars.camera[4] and ttop < Map.masterGroup[i].vars.camera[4] then
+                        bottom = Map.masterGroup[i].vars.camera[4]
+                    end
+                    
+                    if (left >= Map.masterGroup[i].vars.camera[1] and left <= Map.masterGroup[i].vars.camera[3] and
+                        top >= Map.masterGroup[i].vars.camera[2] and top <= Map.masterGroup[i].vars.camera[4]) or
+                        
+                        (right >= Map.masterGroup[i].vars.camera[1] and right <= Map.masterGroup[i].vars.camera[3] and
+                        top >= Map.masterGroup[i].vars.camera[2] and top <= Map.masterGroup[i].vars.camera[4]) or
+                        
+                        (left >= Map.masterGroup[i].vars.camera[1] and left <= Map.masterGroup[i].vars.camera[3] and
+                        bottom >= Map.masterGroup[i].vars.camera[2] and bottom <= Map.masterGroup[i].vars.camera[4]) or
+                        
+                        (right >= Map.masterGroup[i].vars.camera[1] and right <= Map.masterGroup[i].vars.camera[3] and
+                        bottom >= Map.masterGroup[i].vars.camera[2] and bottom <= Map.masterGroup[i].vars.camera[4])then
+                        --onscreen
+                        
+                    elseif (left >= Map.masterGroup[i].vars.camera[1] - 1 and left <= Map.masterGroup[i].vars.camera[3] + 1 and
+                        top >= Map.masterGroup[i].vars.camera[2] - 1 and top <= Map.masterGroup[i].vars.camera[4] + 1) or
+                        
+                        (right >= Map.masterGroup[i].vars.camera[1] - 1 and right <= Map.masterGroup[i].vars.camera[3] + 1 and
+                        top >= Map.masterGroup[i].vars.camera[2] - 1 and top <= Map.masterGroup[i].vars.camera[4] + 1) or
+                        
+                        (left >= Map.masterGroup[i].vars.camera[1] - 1 and left <= Map.masterGroup[i].vars.camera[3] + 1 and
+                        bottom >= Map.masterGroup[i].vars.camera[2] - 1 and bottom <= Map.masterGroup[i].vars.camera[4] + 1) or
+                        
+                        (right >= Map.masterGroup[i].vars.camera[1] - 1 and right <= Map.masterGroup[i].vars.camera[3] + 1 and
+                        bottom >= Map.masterGroup[i].vars.camera[2] - 1 and bottom <= Map.masterGroup[i].vars.camera[4] + 1)then
+                        --edge
+                    else
+                        --offscreen
+                        --Sprites.sprites[spriteName].objectKey = ky
+                        --Sprites.sprites[spriteName].objectLayer = layer
+                        
+                        local tiledObject = Map.map.layers[i].objects[object.objectKey]
+                        tiledObject.cullData = {object.x, object.y, object.width, object.height, object.rotation}
+                        tiledObject.properties.wasDrawn = false
+                        
+                        if object.physicsRegion and #object.physicsRegion > 0 then
+                            for p = #object.physicsRegion, 1, -1 do
+                                local lx = object.physicsRegion[p][1]
+                                local ly = object.physicsRegion[p][2]
+                                local layer = object.physicsRegion[p][3]
+                                Core.updateTile({locX = lx, locY = ly, layer = layer, tile = -1, owner = object})
+                                table.remove(object.physicsRegion, p)							
+                            end
+                        end
+                        
+                        local mL = Map.map.layers[object.objectLayer]
+                        
+                        tiledObject.cullData[6] = {}
+                        for x = tleft, tright, 1 do
+                            for y = ttop, tbottom, 1 do
+                                if not mL.extendedObjects[x][y] then
+                                    mL.extendedObjects[x][y] = {}
+                                end
+                                
+                                mL.extendedObjects[x][y][#mL.extendedObjects[x][y] + 1] = {object.objectLayer, object.objectKey}
+                                tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {x, y, #mL.extendedObjects[x][y]}
+                                
+                            end
+                        end
+                        
+                        if bob and tright - tleft < Map.masterGroup[i].vars.camera[3] - Map.masterGroup[i].vars.camera[1] then
+                            if tbottom - ttop < Map.masterGroup[i].vars.camera[4] - Map.masterGroup[i].vars.camera[2] then
+                                --four corners
+                                --print(tleft, ttop, tright, tbottom)
+                                if not mL.extendedObjects[tleft][ttop] then
+                                    mL.extendedObjects[tleft][ttop] = {}
+                                end
+                                if not mL.extendedObjects[tright][ttop] then
+                                    mL.extendedObjects[tright][ttop] = {}
+                                end
+                                if not mL.extendedObjects[tleft][tbottom] then
+                                    mL.extendedObjects[tleft][tbottom] = {}
+                                end
+                                if not mL.extendedObjects[tright][tbottom] then
+                                    mL.extendedObjects[tright][tbottom] = {}
+                                end
+                                
+                                mL.extendedObjects[tleft][ttop][#mL.extendedObjects[tleft][ttop] + 1] = {object.objectLayer, object.objectKey}
+                                mL.extendedObjects[tright][ttop][#mL.extendedObjects[tright][ttop] + 1] = {object.objectLayer, object.objectKey}
+                                mL.extendedObjects[tleft][tbottom][#mL.extendedObjects[tleft][tbottom] + 1] = {object.objectLayer, object.objectKey}
+                                mL.extendedObjects[tright][tbottom][#mL.extendedObjects[tright][tbottom] + 1] = {object.objectLayer, object.objectKey}
+                                
+                                tiledObject.cullData[6] = {
+                                    {tleft, ttop, #mL.extendedObjects[tleft][ttop]},
+                                    {tright, ttop, #mL.extendedObjects[tright][ttop]},
+                                    {tleft, tbottom, #mL.extendedObjects[tleft][tbottom]},
+                                    {tright, tbottom, #mL.extendedObjects[tright][tbottom]}
+                                }
+                                
+                                if q then
+                                    tiledObject.cullData[6] = {
+                                        mL.extendedObjects[tleft][ttop][#mL.extendedObjects[tleft][ttop]],
+                                        mL.extendedObjects[tright][ttop][#mL.extendedObjects[tright][ttop]],
+                                        mL.extendedObjects[tleft][tbottom][#mL.extendedObjects[tleft][tbottom]],
+                                        mL.extendedObjects[tright][tbottom][#mL.extendedObjects[tright][tbottom]]
+                                    }
+                                end
+                            else
+                                --double columns
+                                tiledObject.cullData[6] = {}
+                                
+                                for y = ttop, tbottom, 1 do
+                                    if not mL.extendedObjects[tleft][y] then
+                                        mL.extendedObjects[tleft][y] = {}
+                                    end
+                                    if not mL.extendedObjects[tright][y] then
+                                        mL.extendedObjects[tright][y] = {}
+                                    end
+                                    
+                                    mL.extendedObjects[tleft][y][#mL.extendedObjects[tleft][y] + 1] = {object.objectLayer, object.objectKey}
+                                    mL.extendedObjects[tright][y][#mL.extendedObjects[tright][y] + 1] = {object.objectLayer, object.objectKey}
+                                    
+                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {tleft, y, #mL.extendedObjects[tleft][y]}
+                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {tright, y, #mL.extendedObjects[tright][y]}
+                                    
+                                    if q then
+                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[tleft][y][#mL.extendedObjects[tleft][y]]
+                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[tright][y][#mL.extendedObjects[tright][y]]
+                                    end
+                                end
+                            end
+                        elseif bob then
+                            if tbottom - ttop < Map.masterGroup[i].vars.camera[4] - Map.masterGroup[i].vars.camera[2] then
+                                --double rows
+                                tiledObject.cullData[6] = {}
+                                
+                                for x = tleft, tright, 1 do
+                                    if not mL.extendedObjects[x][ttop] then
+                                        mL.extendedObjects[x][ttop] = {}
+                                    end
+                                    if not mL.extendedObjects[x][tbottom] then
+                                        mL.extendedObjects[x][tbottom] = {}
+                                    end
+                                    
+                                    mL.extendedObjects[x][ttop][#mL.extendedObjects[x][ttop] + 1] = {object.objectLayer, object.objectKey}
+                                    mL.extendedObjects[x][tbottom][#mL.extendedObjects[x][tbottom] + 1] = {object.objectLayer, object.objectKey}
+                                    
+                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {x, ttop, #mL.extendedObjects[x][ttop]}
+                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {x, tbottom, #mL.extendedObjects[x][tbottom]}
+                                    
+                                    if q then
+                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[x][ttop][#mL.extendedObjects[x][ttop]]
+                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[x][tbottom][#mL.extendedObjects[x][tbottom]]
+                                    end
+                                end
+                            else
+                                --rows and columns
+                                tiledObject.cullData[6] = {}
+                                
+                                for x = tleft, tright, 1 do
+                                    if not mL.extendedObjects[x][ttop] then
+                                        mL.extendedObjects[x][ttop] = {}
+                                    end
+                                    if not mL.extendedObjects[x][tbottom] then
+                                        mL.extendedObjects[x][tbottom] = {}
+                                    end
+                                    
+                                    mL.extendedObjects[x][ttop][#mL.extendedObjects[x][ttop] + 1] = {object.objectLayer, object.objectKey}
+                                    mL.extendedObjects[x][tbottom][#mL.extendedObjects[x][tbottom] + 1] = {object.objectLayer, object.objectKey}
+                                    
+                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {x, ttop, #mL.extendedObjects[x][ttop]}
+                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {x, tbottom, #mL.extendedObjects[x][tbottom]}
+                                    
+                                    if q then
+                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[x][ttop][#mL.extendedObjects[x][ttop]]
+                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[x][tbottom][#mL.extendedObjects[x][tbottom]]
+                                    end
+                                end
+                                
+                                for y = ttop - 1, tbottom + 1, 1 do
+                                    if not mL.extendedObjects[tleft][y] then
+                                        mL.extendedObjects[tleft][y] = {}
+                                    end
+                                    if not mL.extendedObjects[tright][y] then
+                                        mL.extendedObjects[tright][y] = {}
+                                    end
+                                    
+                                    mL.extendedObjects[tleft][y][#mL.extendedObjects[tleft][y] + 1] = {object.objectLayer, object.objectKey}
+                                    mL.extendedObjects[tright][y][#mL.extendedObjects[tright][y] + 1] = {object.objectLayer, object.objectKey}
+                                    
+                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {tleft, y, #mL.extendedObjects[tleft][y]}
+                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {tright, y, #mL.extendedObjects[tright][y]}
+                                    
+                                    if q then
+                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[tleft][y][#mL.extendedObjects[tleft][y]]
+                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[tright][y][#mL.extendedObjects[tright][y]]
+                                    end
+                                end
+                            end
+                        end
+                        
+                        Sprite.removeSprite(object)
+                    end
+                end
+                ------
+            end
+        end
+        
+        for i = 1, #Map.map.layers, 1 do	
+            if Map.map.orientation == Map.Type.Isometric then
+                for j = Map.masterGroup[i].numChildren, 1, -1 do
+                    if Map.masterGroup[i][j].numChildren then
+                        for k = Map.masterGroup[i][j].numChildren, 1, -1 do
+                            if not Map.masterGroup[i][j][k].tiles then
+                                local object = Map.masterGroup[i][j][k]
+                                if object then
+                                    processObject(object, i)
+                                end
+                            end
+                        end
+                    end
+                end
+            else
+                for j = Map.masterGroup[i].numChildren, 1, -1 do
+                    if not Map.masterGroup[i][j].tiles then
+                        if Map.masterGroup[i][j].depthBuffer then
+                            for k = 1, Map.masterGroup[i][j].numChildren, 1 do
+                                for m = 1, Map.masterGroup[i][j][k].numChildren, 1 do
+                                    local object = Map.masterGroup[i][j][k][m]
+                                    if object then
+                                        processObject(object, i)
+                                    end
+                                end
+                            end
+                        else
+                            local object = Map.masterGroup[i][j]
+                            if object then
+                                processObject(object, i)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    
+    --MOVE CAMERA
+    local finalVelX = {}
+    local finalVelY = {}
+    local cameraVelX = {}
+    local cameraVelY = {}
+    if not Camera.McameraFrozen then
+        if Map.map.orientation == Map.Type.Isometric then
+            if Camera.refMove then
+                local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)					
+                local isoPos = Map.isoUntransform2(cameraX, cameraY)
+                cameraX = isoPos[1]
+                cameraY = isoPos[2]
+                local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                local cameraLocY = math.ceil(cameraY / Map.map.tileheight)					
+                local velX = deltaX[Map.refLayer][1]
+                local velY = deltaY[Map.refLayer][1]
+                local tempVelX = deltaX[Map.refLayer][1]
+                local tempVelY = deltaY[Map.refLayer][1]					
+                local check = #Map.map.layers
+                for i = 1, #Map.map.layers, 1 do
+                    if Camera.isCameraMoving[i] then
+                        if Camera.parallaxToggle[i] then
+                            finalVelX[i] = tempVelX * Map.map.layers[i].parallaxX / Map.map.layers[i].properties.scaleX
+                            finalVelY[i] = tempVelY * Map.map.layers[i].parallaxY / Map.map.layers[i].properties.scaleY
+                        else
+                            finalVelX[i] = tempVelX
+                            finalVelY[i] = tempVelY
+                        end
+                    end
+                    table.remove(deltaX[i], 1)
+                    table.remove(deltaY[i], 1)
+                    if not deltaX[i][1] then
+                        check = check - 1
+                        Camera.isCameraMoving[i] = false
+                        Camera.parallaxToggle[i] = true
+                        Camera.refMove = false
+                        --Sprites.holdSprite = nil
+                    end
+                end					
+                if Camera.cameraFocus and not Sprites.holdSprite then
+                    for i = 1, #Map.map.layers, 1 do
+                        Camera.cameraFocus.cameraOffsetX[i] = Camera.cameraFocus.cameraOffsetX[i] + finalVelX[Map.refLayer]
+                        Camera.cameraFocus.cameraOffsetY[i] = Camera.cameraFocus.cameraOffsetY[i] + finalVelY[Map.refLayer]
+                    end
+                end					
+                if check == 0 and Camera.cameraOnComplete[1] then
+                    local tempOnComplete = Camera.cameraOnComplete[1]
+                    Camera.cameraOnComplete = {}
+                    local event = { name = "cameraMoveComplete", levelPosX = cameraX, 
+                        levelPosY = cameraY, 
+                        locX = cameraLocX, 
+                        locY = cameraLocY
+                    }
+                    tempOnComplete(event)
+                end
+            else
+                for i = 1, #Map.map.layers, 1 do
+                    if Camera.isCameraMoving[i] then
+                        local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                        local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                        local isoPos = Map.isoUntransform2(cameraX, cameraY)
+                        cameraX = isoPos[1]
+                        cameraY = isoPos[2]
+                        local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                        local cameraLocY = math.ceil(cameraY / Map.map.tileheight)							
+                        local velX = deltaX[i][1]
+                        local velY = deltaY[i][1]
+                        local tempVelX = deltaX[i][1]
+                        local tempVelY = deltaY[i][1]							
+                        if Camera.parallaxToggle[i] or Camera.parallaxToggle[i] == nil then
+                            finalVelX[i] = tempVelX * Map.map.layers[i].parallaxX / Map.map.layers[i].properties.scaleX
+                            finalVelY[i] = tempVelY * Map.map.layers[i].parallaxY / Map.map.layers[i].properties.scaleY
+                        else
+                            finalVelX[i] = tempVelX
+                            finalVelY[i] = tempVelY
+                        end
+                        if Camera.cameraFocus and not Sprites.holdSprite then
+                            Camera.cameraFocus.cameraOffsetX[i] = Camera.cameraFocus.cameraOffsetX[i] + finalVelX[i]
+                            Camera.cameraFocus.cameraOffsetY[i] = Camera.cameraFocus.cameraOffsetY[i] + finalVelY[i]
+                        end						
+                        table.remove(deltaX[i], 1)
+                        table.remove(deltaY[i], 1)
+                        if not deltaX[i][1] then
+                            Camera.isCameraMoving[i] = false
+                            Camera.parallaxToggle[i] = true
+                            --Sprites.holdSprite = nil
+                            if Camera.cameraOnComplete[i] then
+                                local tempOnComplete = Camera.cameraOnComplete[i]
+                                Camera.cameraOnComplete[i] = nil
+                                local event = { name = "cameraLayerMoveComplete", layer = i, 
+                                    levelPosX = cameraX, 
+                                    levelPosY = cameraY, 
+                                    locX = cameraLocX, 
+                                    locY = cameraLocY
+                                }
+                                tempOnComplete(event)
+                            end
+                        end
+                    end
+                end
+            end
+            
+            --FOLLOW SPRITE
+            local followingSprite = false
+            if Camera.cameraFocus and not Sprites.holdSprite then
+                for i = 1, #Map.map.layers, 1 do
+                    local tempX, tempY, cameraX, cameraY, velX, velY
+                    if Map.map.layers[i].toggleParallax == true or Map.map.layers[i].parallaxX ~= 1 or Map.map.layers[i].parallaxY ~= 1 then
+                        tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                        cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+                        velX = finalVelX[Map.refLayer] or 0
+                        velY = finalVelY[Map.refLayer] or 0
+                    else
+                        tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                        cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                        velX = finalVelX[i] or 0
+                        velY = finalVelY[i] or 0
+                    end
+                    local isoPos = Map.isoUntransform2(cameraX, cameraY)
+                    cameraX = isoPos[1]
+                    cameraY = isoPos[2]
+                    local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                    local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+                    local fX = Camera.cameraFocus.levelPosX
+                    local fY = Camera.cameraFocus.levelPosY
+                    if math.abs((cameraX + velX) - (fX + Camera.cameraFocus.cameraOffsetX[i])) > 0.1 then
+                        finalVelX[i] = ((fX + Camera.cameraFocus.cameraOffsetX[i]) - (cameraX)) * Map.map.layers[i].parallaxX / Map.map.layers[i].properties.scaleX
+                        followingSprite = true
+                    end
+                    if math.abs((cameraY + velY) - (fY + Camera.cameraFocus.cameraOffsetY[i])) > 0.1 then
+                        finalVelY[i] = ((fY + Camera.cameraFocus.cameraOffsetY[i]) - (cameraY)) * Map.map.layers[i].parallaxY / Map.map.layers[i].properties.scaleY
+                        followingSprite = true
+                    end
+                end
+                
+            end
+            
+            --Clear constraint variable: override
+            local checkHoldSprite = 0
+            for i = 1, #Map.map.layers, 1 do
+                if Camera.override[i] and (not deltaX[i] or not deltaX[i][1]) then
+                    Camera.override[i] = false
+                end
+                if not Camera.deltaX[i] or not Camera.deltaX[i][1] then
+                    checkHoldSprite = checkHoldSprite + 1
+                end
+            end
+            if checkHoldSprite == #Map.map.layers and Sprites.holdSprite then
+                Sprites.holdSprite = false
+            end
+            
+            --APPLY CONSTRAINTS CONTINUOUSLY
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+            local isoPos = Map.isoUntransform2(cameraX, cameraY)
+            cameraX = isoPos[1]
+            cameraY = isoPos[2]
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+            
+            --calculate constraints
+            local angle = Map.masterGroup.rotation + Map.masterGroup[Map.refLayer].rotation
+            while angle >= 360 do
+                angle = angle - 360
+            end
+            while angle < 0 do
+                angle = angle + 360
+            end				
+            local topLeftT, topRightT, bottomRightT, bottomLeftT
+            topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft, Screen.screenTop)}
+            topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight, Screen.screenTop)}
+            bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight, Screen.screenBottom)}
+            bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft, Screen.screenBottom)}				
+            local topLeft, topRight, bottomRight, bottomLeft
+            if angle >= 0 and angle < 90 then
+                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
+                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+            elseif angle >= 90 and angle < 180 then
+                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
+                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
+            elseif angle >= 180 and angle < 270 then
+                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
+            elseif angle >= 270 and angle < 360 then
+                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
+                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+            end
+            for i = 1, #Map.map.layers, 1 do
+                if (not followingSprite or Map.masterGroup[i].vars.constrainLayer) and not Map.masterGroup[i].vars.alignment then
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                    local isoPos = Map.isoUntransform2(cameraX, cameraY)
+                    cameraX = isoPos[1]
+                    cameraY = isoPos[2]
+                    cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                    cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+                    
+                    --calculate constraints
+                    angle = Map.masterGroup.rotation + Map.masterGroup[i].rotation
+                    while angle >= 360 do
+                        angle = angle - 360
+                    end
+                    while angle < 0 do
+                        angle = angle + 360
+                    end						
+                    if angle >= 0 and angle < 90 then
+                        topLeft = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
+                        topRight = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
+                        bottomRight = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                        bottomLeft = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    elseif angle >= 90 and angle < 180 then
+                        topLeft = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
+                        topRight = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                        bottomRight = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                        bottomLeft = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    elseif angle >= 180 and angle < 270 then
+                        topLeft = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                        topRight = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                        bottomRight = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
+                        bottomLeft = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
+                    elseif angle >= 270 and angle < 360 then
+                        topLeft = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                        topRight = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
+                        bottomRight = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
+                        bottomLeft = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    end
+                end					
+                local topLeftT, topRightT, bottomRightT, bottomLeftT
+                topLeftT = Map.isoUntransform2(topLeft[1], topLeft[2])
+                topRightT = Map.isoUntransform2(topRight[1], topRight[2])
+                bottomRightT = Map.isoUntransform2(bottomRight[1], bottomRight[2])
+                bottomLeftT = Map.isoUntransform2(bottomLeft[1], bottomLeft[2])					
+                local left, top, right, bottom
+                left = topLeftT[1] - (Map.map.tilewidth / 2)
+                top = topRightT[2] - (Map.map.tileheight / 2)
+                right = bottomRightT[1] - (Map.map.tilewidth / 2)
+                bottom = bottomLeftT[2] - (Map.map.tileheight / 2)					
+                local leftConstraint, topConstraint, rightConstraint, bottomConstraint
+                if Camera.constrainLeft[i] then
+                    leftConstraint = Camera.constrainLeft[i] + (cameraX - left)
+                end
+                if Camera.constrainTop[i] then
+                    topConstraint = Camera.constrainTop[i] + (cameraY - top)
+                end
+                if Camera.constrainRight[i] then
+                    rightConstraint = Camera.constrainRight[i] - (right - cameraX)
+                end
+                if Camera.constrainBottom[i] then
+                    bottomConstraint = Camera.constrainBottom[i] - (bottom - cameraY)
+                end						
+                if (leftConstraint and rightConstraint) and (leftConstraint > rightConstraint) then
+                    local temp = (leftConstraint + rightConstraint) / 2
+                    leftConstraint = temp
+                    rightConstraint = temp
+                end
+                if (topConstraint and bottomConstraint) and (topConstraint > bottomConstraint) then
+                    local temp = (topConstraint + bottomConstraint) / 2
+                    topConstraint = temp
+                    bottomConstraint = temp
+                end				
+                if not Map.masterGroup[i].vars.alignment then
+                    local velX = finalVelX[i] or 0
+                    local velY = finalVelY[i] or 0
+                    local tempVelX = velX
+                    local tempVelY = velY					
+                    if not Camera.override[i] then
+                        local tVelX, tVelY = tempVelX, tempVelY
+                        if leftConstraint then
+                            if cameraX + velX / Map.map.layers[i].parallaxX < leftConstraint then
+                                tVelX = (leftConstraint - cameraX) / Map.map.layers[i].parallaxX
+                            end
+                        end
+                        if rightConstraint then
+                            if cameraX + velX / Map.map.layers[i].parallaxX > rightConstraint then
+                                tVelX = (rightConstraint - cameraX) / Map.map.layers[i].parallaxX
+                            end
+                        end
+                        if topConstraint then
+                            if cameraY + velY / Map.map.layers[i].parallaxY < topConstraint then
+                                tVelY = (topConstraint - cameraY) / Map.map.layers[i].parallaxY
+                            end
+                        end
+                        if bottomConstraint then
+                            if cameraY + velY / Map.map.layers[i].parallaxY > bottomConstraint then
+                                tVelY = (bottomConstraint - cameraY) / Map.map.layers[i].parallaxY
+                            end
+                        end
+                        tempVelX = tVelX
+                        tempVelY = tVelY
+                    end					
+                    local velX = tempVelX
+                    local velY = tempVelY
+                    nXx = math.cos(R45) * velX * 1
+                    nXy = math.sin(R45) * velX / Map.map.isoRatio
+                    nYx = math.sin(R45) * velY * -1
+                    nYy = math.cos(R45) * velY / Map.map.isoRatio
+                    local tempVelX2 = (nXx + nYx)
+                    local tempVelY2 = (nXy + nYy)
+                    Map.masterGroup[i]:translate(tempVelX2 * -1 * Map.map.layers[i].properties.scaleX, tempVelY2 * -1 * Map.map.layers[i].properties.scaleY)
+                else
+                    if not leftConstraint then
+                        leftConstraint = (0 - (Map.map.locOffsetX * Map.map.tilewidth)) + (cameraX - left)
+                    end
+                    if not topConstraint then
+                        topConstraint = (0 - (Map.map.locOffsetY * Map.map.tileheight)) + (cameraY - top)
+                    end
+                    if not rightConstraint then
+                        rightConstraint = ((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth) - (right - cameraX)
+                    end
+                    if not bottomConstraint then
+                        bottomConstraint = ((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight) - (bottom - cameraY)	
+                    end			
+                    if (leftConstraint and rightConstraint) and (leftConstraint > rightConstraint) then
+                        local temp = (leftConstraint + rightConstraint) / 2
+                        leftConstraint = temp
+                        rightConstraint = temp
+                    end
+                    if (topConstraint and bottomConstraint) and (topConstraint > bottomConstraint) then
+                        local temp = (topConstraint + bottomConstraint) / 2
+                        topConstraint = temp
+                        bottomConstraint = temp
+                    end	
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+                    local isoPos = Map.isoUntransform2(cameraX, cameraY)
+                    cameraX = isoPos[1]
+                    cameraY = isoPos[2]
+                    local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                    local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+                    local xA = Map.masterGroup[i].vars.alignment[1] or "center"
+                    local yA = Map.masterGroup[i].vars.alignment[2] or "center"						
+                    local levelPosX, levelPosY
+                    if xA == "center" then
+                        local adjustment1 = (((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5)) * Map.map.layers[i].properties.scaleX) - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))
+                        local adjustment2 = (cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) - ((cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) * Map.map.layers[i].parallaxX)
+                        levelPosX = ((cameraX + adjustment1) - adjustment2)
+                    elseif xA == "left" then
+                        local adjustment = (cameraX - leftConstraint) - ((cameraX - leftConstraint) * Map.map.layers[i].parallaxX)
+                        levelPosX = (cameraX - adjustment)
+                    elseif xA == "right" then
+                        local adjustment1 = (((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth) * Map.map.layers[i].properties.scaleX) - ((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth)
+                        local adjustment2 = (cameraX - rightConstraint) - ((cameraX - rightConstraint) * Map.map.layers[i].parallaxX)
+                        levelPosX = ((cameraX + adjustment1) - adjustment2)
+                    end						
+                    if yA == "center" then
+                        local adjustment1 = (((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5)) * Map.map.layers[i].properties.scaleY) - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))
+                        local adjustment2 = (cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) - ((cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) * Map.map.layers[i].parallaxY)
+                        levelPosY = ((cameraY + adjustment1) - adjustment2)
+                    elseif yA == "top" then
+                        local adjustment = (cameraY - topConstraint) - ((cameraY - topConstraint) * Map.map.layers[i].parallaxY)
+                        levelPosY = (cameraY - adjustment)
+                    elseif yA == "bottom" then
+                        local adjustment1 = (((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight) * Map.map.layers[i].properties.scaleY) - ((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight)
+                        local adjustment2 = (cameraY - bottomConstraint) - ((cameraY - bottomConstraint) * Map.map.layers[i].parallaxY)
+                        levelPosY = ((cameraY + adjustment1) - adjustment2)
+                    end							
+                    local deltaX = levelPosX + ((Map.map.tilewidth / 2 * Map.map.layers[i].properties.scaleX) - (Map.map.tilewidth / 2)) - cameraX * Map.map.layers[i].properties.scaleX
+                    local deltaY = levelPosY + ((Map.map.tileheight / 2 * Map.map.layers[i].properties.scaleY) - (Map.map.tileheight / 2)) - cameraY * Map.map.layers[i].properties.scaleY	
+                    local isoVector = Map.isoVector(deltaX, deltaY)						
+                    Map.masterGroup[i].x = (Map.masterGroup[Map.refLayer].x * Map.map.layers[i].properties.scaleX) - isoVector[1]
+                    Map.masterGroup[i].y = (Map.masterGroup[Map.refLayer].y * Map.map.layers[i].properties.scaleY) - isoVector[2]		
+                end
+            end	
+        else
+            if Camera.refMove then
+                local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+                local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                local cameraLocY = math.ceil(cameraY / Map.map.tileheight)					
+                local velX = Camera.deltaX[Map.refLayer][1]
+                local velY = Camera.deltaY[Map.refLayer][1]
+                local tempVelX = Camera.deltaX[Map.refLayer][1]
+                local tempVelY = Camera.deltaY[Map.refLayer][1]					
+                local check = #Map.map.layers
+                for i = 1, #Map.map.layers, 1 do
+                    if Camera.isCameraMoving[i] then
+                        if Camera.parallaxToggle[i] then
+                            finalVelX[i] = tempVelX * Map.map.layers[i].parallaxX
+                            finalVelY[i] = tempVelY * Map.map.layers[i].parallaxY
+                            cameraVelX[i] = tempVelX * Map.map.layers[i].parallaxX
+                            cameraVelY[i] = tempVelY * Map.map.layers[i].parallaxY
+                        else
+                            finalVelX[i] = tempVelX
+                            finalVelY[i] = tempVelY
+                            cameraVelX[i] = tempVelX
+                            cameraVelY[i] = tempVelY
+                        end
+                    end						
+                    table.remove(Camera.deltaX[i], 1)
+                    table.remove(Camera.deltaY[i], 1)
+                    if not Camera.deltaX[i][1] then
+                        check = check - 1
+                        Camera.isCameraMoving[i] = false
+                        Camera.parallaxToggle[i] = true
+                        --Camera.refMove = false
+                        --Sprites.holdSprite = nil
+                    end
+                end					
+                if Camera.cameraFocus and not Sprites.holdSprite then
+                    for i = 1, #Map.map.layers, 1 do
+                        Camera.cameraFocus.cameraOffsetX[i] = Camera.cameraFocus.cameraOffsetX[i] + finalVelX[Map.refLayer]
+                        Camera.cameraFocus.cameraOffsetY[i] = Camera.cameraFocus.cameraOffsetY[i] + finalVelY[Map.refLayer]
+                    end
+                end						
+                if check == 0 and Camera.cameraOnComplete[1] then
+                    local tempOnComplete = Camera.cameraOnComplete[1]
+                    Camera.cameraOnComplete = {}
+                    local event = { name = "cameraMoveComplete", levelPosX = cameraX, 
+                        levelPosY = cameraY, 
+                        locX = cameraLocX, 
+                        locY = cameraLocY
+                    }
+                    tempOnComplete(event)
+                end
+            else					
+                for i = 1, #Map.map.layers, 1 do
+                    if Camera.isCameraMoving[i] then
+                        local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                        local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                        local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                        local cameraLocY = math.ceil(cameraY / Map.map.tileheight)						
+                        local velX = Camera.deltaX[i][1]
+                        local velY = Camera.deltaY[i][1]
+                        local tempVelX = Camera.deltaX[i][1]
+                        local tempVelY = Camera.deltaY[i][1]
+                        if Camera.parallaxToggle[i] or Camera.parallaxToggle[i] == nil then
+                            finalVelX[i] = tempVelX * Map.map.layers[i].parallaxX
+                            finalVelY[i] = tempVelY * Map.map.layers[i].parallaxY
+                        else
+                            finalVelX[i] = tempVelX
+                            finalVelY[i] = tempVelY
+                        end							
+                        if Camera.cameraFocus and not Sprites.holdSprite then
+                            Camera.cameraFocus.cameraOffsetX[i] = Camera.cameraFocus.cameraOffsetX[i] + finalVelX[i]
+                            Camera.cameraFocus.cameraOffsetY[i] = Camera.cameraFocus.cameraOffsetY[i] + finalVelY[i]
+                        end						
+                        table.remove(Camera.deltaX[i], 1)
+                        table.remove(Camera.deltaY[i], 1)
+                        if not Camera.deltaX[i][1] then
+                            Camera.isCameraMoving[i] = false
+                            Camera.parallaxToggle[i] = true
+                            --Sprites.holdSprite = nil
+                            if Camera.cameraOnComplete[i] then
+                                local tempOnComplete = Camera.cameraOnComplete[i]
+                                Camera.cameraOnComplete[i] = nil
+                                local event = { name = "cameraLayerMoveComplete", layer = i, 
+                                    levelPosX = cameraX, 
+                                    levelPosY = cameraY, 
+                                    locX = cameraLocX, 
+                                    locY = cameraLocY
+                                }
+                                tempOnComplete(event)
+                            end
+                        end
+                    end
+                end
+            end
+            
+            --FOLLOW SPRITE
+            local followingSprite = false
+            if Camera.cameraFocus and not Sprites.holdSprite then
+                for i = 1, #Map.map.layers, 1 do
+                    local tempX, tempY, cameraX, cameraY, velX, velY
+                    if Map.map.layers[i].toggleParallax == true or Map.map.layers[i].parallaxX ~= 1 or Map.map.layers[i].parallaxY ~= 1 then
+                        tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                        cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+                        velX = finalVelX[Map.refLayer] or 0
+                        velY = finalVelY[Map.refLayer] or 0
+                    else
+                        tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                        cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                        velX = finalVelX[i] or 0
+                        velY = finalVelY[i] or 0
+                    end
+                    local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                    local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+                    local fX = Camera.cameraFocus.x
+                    local fY = Camera.cameraFocus.y
+                    if cameraX + velX ~= fX + Camera.cameraFocus.cameraOffsetX[i] then
+                        if not Camera.override[i] then
+                            finalVelX[i] = ((fX + Camera.cameraFocus.cameraOffsetX[i]) - (cameraX)) * Map.map.layers[i].parallaxX
+                            followingSprite = true
+                        end
+                    end
+                    if cameraY + velY ~= fY + Camera.cameraFocus.cameraOffsetY[i] then
+                        if not Camera.override[i] then
+                            finalVelY[i] = ((fY + Camera.cameraFocus.cameraOffsetY[i]) - (cameraY)) * Map.map.layers[i].parallaxY
+                            followingSprite = true
+                        end
+                    end
+                end
+            end
+            
+            --Clear constraint variables: Camera.override, Sprites.holdSprite
+            local checkHoldSprite = 0
+            for i = 1, #Map.map.layers, 1 do
+                if Camera.override[i] and (not Camera.deltaX[i] or not Camera.deltaX[i][1]) then
+                    Camera.override[i] = false
+                end
+                if not Camera.deltaX[i] or not Camera.deltaX[i][1] then
+                    checkHoldSprite = checkHoldSprite + 1
+                end
+            end
+            if checkHoldSprite == #Map.map.layers and Sprites.holdSprite then
+                Sprites.holdSprite = false
+            end
+            
+            --APPLY CONSTRAINTS CONTINUOUSLY
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+            
+            --calculate constraints
+            local angle = Map.masterGroup.rotation + Map.masterGroup[Map.refLayer].rotation
+            while angle >= 360 do
+                angle = angle - 360
+            end
+            while angle < 0 do
+                angle = angle + 360
+            end				
+            local topLeftT, topRightT, bottomRightT, bottomLeftT
+            topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft, Screen.screenTop)}
+            topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight, Screen.screenTop)}
+            bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight, Screen.screenBottom)}
+            bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft, Screen.screenBottom)}				
+            local topLeft, topRight, bottomRight, bottomLeft
+            if angle >= 0 and angle < 90 then
+                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
+                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+            elseif angle >= 90 and angle < 180 then
+                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
+                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
+            elseif angle >= 180 and angle < 270 then
+                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
+            elseif angle >= 270 and angle < 360 then
+                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
+                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+            end
+            
+            for i = 1, #Map.map.layers, 1 do
+                if not Camera.refMove and ((not followingSprite or Map.masterGroup[i].vars.constrainLayer) and not Map.masterGroup[i].vars.alignment) then
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                    cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                    cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+                    
+                    --calculate constraints
+                    angle = Map.masterGroup.rotation + Map.masterGroup[i].rotation
+                    while angle >= 360 do
+                        angle = angle - 360
+                    end
+                    while angle < 0 do
+                        angle = angle + 360
+                    end						
+                    if angle >= 0 and angle < 90 then
+                        topLeft = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
+                        topRight = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
+                        bottomRight = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                        bottomLeft = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    elseif angle >= 90 and angle < 180 then
+                        topLeft = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
+                        topRight = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                        bottomRight = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                        bottomLeft = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    elseif angle >= 180 and angle < 270 then
+                        topLeft = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                        topRight = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                        bottomRight = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
+                        bottomLeft = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
+                    elseif angle >= 270 and angle < 360 then
+                        topLeft = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                        topRight = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
+                        bottomRight = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
+                        bottomLeft = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    end
+                end
+                local left, top, right, bottom
+                if topLeft[1] < bottomLeft[1] then
+                    left = topLeft[1]
+                else
+                    left = bottomLeft[1]
+                end
+                if topLeft[2] < topRight[2] then
+                    top = topLeft[2]
+                else
+                    top = topRight[2]
+                end
+                if topRight[1] > bottomRight[1] then
+                    right = topRight[1]
+                else
+                    right = bottomRight[1]
+                end
+                if bottomRight[2] > bottomLeft[2] then
+                    bottom = bottomRight[2]
+                else
+                    bottom = bottomLeft[2]
+                end	
+                local leftConstraint, topConstraint, rightConstraint, bottomConstraint
+                if Camera.constrainLeft[i] then
+                    leftConstraint = Camera.constrainLeft[i] + (cameraX - left)
+                end
+                if Camera.constrainTop[i] then
+                    topConstraint = Camera.constrainTop[i] + (cameraY - top)
+                end
+                if Camera.constrainRight[i] then
+                    rightConstraint = Camera.constrainRight[i] - (right - cameraX)
+                end
+                if Camera.constrainBottom[i] then
+                    bottomConstraint = Camera.constrainBottom[i] - (bottom - cameraY)
+                end						
+                if (leftConstraint and rightConstraint) and (leftConstraint > rightConstraint) then
+                    local temp = (leftConstraint + rightConstraint) / 2
+                    leftConstraint = temp
+                    rightConstraint = temp
+                end
+                if (topConstraint and bottomConstraint) and (topConstraint > bottomConstraint) then
+                    local temp = (topConstraint + bottomConstraint) / 2
+                    topConstraint = temp
+                    bottomConstraint = temp
+                end					
+                --print(Map.masterGroup[i].vars.alignment)
+                if not Map.masterGroup[i].vars.alignment then
+                    local velX = finalVelX[i] or 0
+                    local velY = finalVelY[i] or 0
+                    local tempVelX = velX
+                    local tempVelY = velY					
+                    if not Camera.override[i] then
+                        if leftConstraint then
+                            if cameraX + velX / Map.map.layers[i].parallaxX < leftConstraint then
+                                tempVelX = (leftConstraint - cameraX) * Map.map.layers[i].parallaxX
+                            end
+                            if Camera.cameraFocus and Camera.cameraFocus.levelPosX + Camera.cameraFocus.cameraOffsetX[i] < leftConstraint then
+                                Camera.cameraFocus.cameraOffsetX[i] = leftConstraint - Camera.cameraFocus.levelPosX
+                                if Camera.cameraFocus.levelPosX + Camera.cameraFocus.cameraOffsetX[i] > Camera.cameraFocus.levelPosX and (cameraVelX[i] or 0) <= 0 then
+                                    Camera.cameraFocus.cameraOffsetX[i] = 0
+                                end
+                            end
+                        end
+                        if rightConstraint then
+                            if cameraX + velX / Map.map.layers[i].parallaxX > rightConstraint then
+                                tempVelX = (rightConstraint - cameraX) * Map.map.layers[i].parallaxX
+                            end
+                            if Camera.cameraFocus and Camera.cameraFocus.levelPosX + Camera.cameraFocus.cameraOffsetX[i] > rightConstraint then
+                                Camera.cameraFocus.cameraOffsetX[i] = rightConstraint - Camera.cameraFocus.levelPosX
+                                if Camera.cameraFocus.levelPosX + Camera.cameraFocus.cameraOffsetX[i] < Camera.cameraFocus.levelPosX and (cameraVelX[i] or 0) >= 0 then
+                                    Camera.cameraFocus.cameraOffsetX[i] = 0
+                                end
+                            end
+                        end
+                        if topConstraint then
+                            if cameraY + velY / Map.map.layers[i].parallaxY < topConstraint then
+                                tempVelY = (topConstraint - cameraY) * Map.map.layers[i].parallaxY
+                            end
+                            if Camera.cameraFocus and Camera.cameraFocus.levelPosY + Camera.cameraFocus.cameraOffsetY[i] < topConstraint then
+                                Camera.cameraFocus.cameraOffsetY[i] = topConstraint - Camera.cameraFocus.levelPosY
+                                if Camera.cameraFocus.levelPosY + Camera.cameraFocus.cameraOffsetY[i] > Camera.cameraFocus.levelPosY and (cameraVelY[i] or 0) <= 0 then
+                                    Camera.cameraFocus.cameraOffsetY[i] = 0
+                                end
+                            end
+                        end
+                        if bottomConstraint then
+                            if cameraY + velY / Map.map.layers[i].parallaxY > bottomConstraint then
+                                tempVelY = (bottomConstraint - cameraY) * Map.map.layers[i].parallaxY
+                            end
+                            if Camera.cameraFocus and Camera.cameraFocus.levelPosY + Camera.cameraFocus.cameraOffsetY[i] > bottomConstraint then
+                                Camera.cameraFocus.cameraOffsetY[i] = bottomConstraint - Camera.cameraFocus.levelPosY
+                                if Camera.cameraFocus.levelPosY + Camera.cameraFocus.cameraOffsetY[i] < Camera.cameraFocus.levelPosY and (cameraVelY[i] or 0) >= 0 then
+                                    Camera.cameraFocus.cameraOffsetY[i] = 0
+                                end
+                            end
+                        end
+                    end				
+                    Map.masterGroup[i]:translate(tempVelX * -1 * Map.map.layers[i].properties.scaleX, tempVelY * -1 * Map.map.layers[i].properties.scaleY)
+                else
+                    if not leftConstraint then
+                        leftConstraint = (0 - (Map.map.locOffsetX * Map.map.tilewidth)) + (cameraX - left)
+                    end
+                    if not topConstraint then
+                        topConstraint = (0 - (Map.map.locOffsetY * Map.map.tileheight)) + (cameraY - top)
+                    end
+                    if not rightConstraint then
+                        rightConstraint = (Map.map.width * Map.map.tilewidth) - (right - cameraX)
+                    end
+                    if not bottomConstraint then
+                        bottomConstraint = (Map.map.height * Map.map.tileheight) - (bottom - cameraY)	
+                    end			
+                    if (leftConstraint and rightConstraint) and (leftConstraint > rightConstraint) then
+                        local temp = (leftConstraint + rightConstraint) / 2
+                        leftConstraint = temp
+                        rightConstraint = temp
+                    end
+                    if (topConstraint and bottomConstraint) and (topConstraint > bottomConstraint) then
+                        local temp = (topConstraint + bottomConstraint) / 2
+                        topConstraint = temp
+                        bottomConstraint = temp
+                    end	
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+                    local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                    local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+                    local xA = Map.masterGroup[i].vars.alignment[1]
+                    local yA = Map.masterGroup[i].vars.alignment[2]	
+                    --print(i, xA, yA)					
+                    if xA == "center" then
+                        --local adjustment1 = (((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5)) * Map.map.layers[i].properties.scaleX) - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))
+                        --local adjustment2 = (cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) - ((cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) * Map.map.layers[i].parallaxX)
+                        --print(Map.map.layers[i].parallaxX)
+                        --local adjustment1 = (((Map.map.layers[i].width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5)) * Map.map.layers[i].properties.scaleX) - ((Map.map.layers[i].width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))
+                        local adjustment1 = (((Map.map.layers[i].width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5)) * Map.map.layers[i].properties.scaleX) - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))
+                        local adjustment2 = (cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) - ((cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) * Map.map.layers[i].parallaxX)
+                        Map.masterGroup[i].x = ((cameraX + adjustment1) - adjustment2) * -1
+                    elseif xA == "left" then
+                        local adjustment = (cameraX - leftConstraint) - ((cameraX - leftConstraint) * Map.map.layers[i].parallaxX)
+                        Map.masterGroup[i].x = (cameraX - adjustment) * -1
+                    elseif xA == "right" then
+                        --local adjustment1 = (((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth) * Map.map.layers[i].properties.scaleX) - ((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth)
+                        --local adjustment2 = (cameraX - rightConstraint) - ((cameraX - rightConstraint) * Map.map.layers[i].parallaxX)
+                        local adjustment1 = (((Map.map.layers[i].width - Map.map.locOffsetX) * Map.map.tilewidth) * Map.map.layers[i].properties.scaleX) - ((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth)
+                        local adjustment2 = (cameraX - rightConstraint) - ((cameraX - rightConstraint) * Map.map.layers[i].parallaxX)
+                        Map.masterGroup[i].x = ((cameraX + adjustment1) - adjustment2) * -1
+                    end						
+                    if yA == "center" then
+                        --local adjustment1 = (((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5)) * Map.map.layers[i].properties.scaleY) - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))
+                        --local adjustment2 = (cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) - ((cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) * Map.map.layers[i].parallaxY)
+                        local adjustment1 = (((Map.map.layers[i].height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5)) * Map.map.layers[i].properties.scaleY) - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))
+                        local adjustment2 = (cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) - ((cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) * Map.map.layers[i].parallaxY)
+                        Map.masterGroup[i].y = ((cameraY + adjustment1) - adjustment2) * -1
+                    elseif yA == "top" then
+                        local adjustment = (cameraY - topConstraint) - ((cameraY - topConstraint) * Map.map.layers[i].parallaxY)
+                        Map.masterGroup[i].y = (cameraY - adjustment) * -1
+                    elseif yA == "bottom" then
+                        --local adjustment1 = (((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight) * Map.map.layers[i].properties.scaleY) - ((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight)
+                        --local adjustment2 = (cameraY - bottomConstraint) - ((cameraY - bottomConstraint) * Map.map.layers[i].parallaxY)
+                        local adjustment1 = (((Map.map.layers[i].height - Map.map.locOffsetY) * Map.map.tileheight) * Map.map.layers[i].properties.scaleY) - ((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight)
+                        local adjustment2 = (cameraY - bottomConstraint) - ((cameraY - bottomConstraint) * Map.map.layers[i].parallaxY)
+                        Map.masterGroup[i].y = ((cameraY + adjustment1) - adjustment2) * -1
+                    end
+                end
+            end
+            
+            if Camera.refMove and not Camera.deltaX[Map.refLayer][1] then
+                Camera.refMove = false
+            end				
+        end
+    end
+    
+    --WRAP CAMERA
+    for i = 1, #Map.map.layers, 1 do
+        if not Camera.isCameraMoving[i] then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)				
+            if Map.map.orientation == Map.Type.Isometric then
+                local isoPos = Map.isoUntransform2(cameraX, cameraY)
+                cameraX = isoPos[1]
+                cameraY = isoPos[2]					
+                if Camera.layerWrapX[i] then
+                    if cameraX < 0 then
+                        local vector = Map.isoVector(Map.map.layers[i].width * Map.map.tilewidth, 0)
+                        Map.masterGroup[i]:translate(vector[1] * -1 * Map.map.layers[i].properties.scaleX, vector[2] * -1 * Map.map.layers[i].properties.scaleY)
+                    elseif cameraX > Map.map.layers[i].width * Map.map.tilewidth then
+                        local vector = Map.isoVector(Map.map.layers[i].width * Map.map.tilewidth * -1, 0)
+                        Map.masterGroup[i]:translate(vector[1] * -1 * Map.map.layers[i].properties.scaleX, vector[2] * -1 * Map.map.layers[i].properties.scaleY)
+                    end
+                end
+                if Camera.layerWrapY[i] then
+                    if cameraY < 0 then
+                        local vector = Map.isoVector(0, Map.map.layers[i].height * Map.map.tileheight)
+                        Map.masterGroup[i]:translate(vector[1] * -1 * Map.map.layers[i].properties.scaleX, vector[2] * -1 * Map.map.layers[i].properties.scaleY)
+                    elseif cameraY > Map.map.layers[i].height * Map.map.tileheight then
+                        local vector = Map.isoVector(0, Map.map.layers[i].height * Map.map.tileheight * -1)
+                        Map.masterGroup[i]:translate(vector[1] * -1 * Map.map.layers[i].properties.scaleX, vector[2] * -1 * Map.map.layers[i].properties.scaleY)
+                    end
+                end
+            else
+                if Camera.layerWrapX[i] then
+                    if cameraX < 0 then
+                        Map.masterGroup[i].x = Map.masterGroup[i].x + Map.map.layers[i].width * Map.map.tilewidth * -1 * Map.map.layers[i].properties.scaleX
+                    elseif cameraX > Map.map.layers[i].width * Map.map.tilewidth then
+                        Map.masterGroup[i].x = Map.masterGroup[i].x - Map.map.layers[i].width * Map.map.tilewidth * -1 * Map.map.layers[i].properties.scaleX
+                    end
+                end
+                if Camera.layerWrapY[i] then
+                    if cameraY < 0 then
+                        Map.masterGroup[i].y = Map.masterGroup[i].y + Map.map.layers[i].height * Map.map.tileheight * -1 * Map.map.layers[i].properties.scaleY
+                    elseif cameraY > Map.map.layers[i].height * Map.map.tileheight then
+                        Map.masterGroup[i].y = Map.masterGroup[i].y - Map.map.layers[i].height * Map.map.tileheight * -1 * Map.map.layers[i].properties.scaleY
+                    end
+                end
+            end
+        end
+    end
+    
+    --CULL AND RENDER
+    if Map.map.orientation == Map.Type.Isometric then
+        for layer = 1, #Map.map.layers, 1 do
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
+            local isoPos = Map.isoUntransform2(cameraX, cameraY)
+            cameraX = isoPos[1]
+            cameraY = isoPos[2]
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)				
+            Camera.McameraX, Camera.McameraY = cameraX, cameraY
+            Camera.McameraLocX = cameraLocX
+            Camera.McameraLocY = cameraLocY
+            if not Map.masterGroup[layer].vars.camera then	
+                --Render view if view does not exist
+                Map.totalRects[layer] = 0
+                local angle = Map.masterGroup.rotation + Map.masterGroup[layer].rotation
+                while angle >= 360 do
+                    angle = angle - 360
+                end
+                while angle < 0 do
+                    angle = angle + 360
+                end					
+                local topLeftT, topRightT, bottomRightT, bottomLeftT
+                topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenTop - Camera.cullingMargin[2])}
+                topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenTop - Camera.cullingMargin[2])}
+                bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenBottom + Camera.cullingMargin[4])}
+                bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenBottom + Camera.cullingMargin[4])}					
+                local topLeft, topRight, bottomRight, bottomLeft
+                if angle >= 0 and angle < 90 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                elseif angle >= 90 and angle < 180 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                elseif angle >= 180 and angle < 270 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                elseif angle >= 270 and angle < 360 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                end
+                topLeft = Map.isoUntransform2(topLeft[1], topLeft[2])
+                topRight = Map.isoUntransform2(topRight[1], topRight[2])
+                bottomRight = Map.isoUntransform2(bottomRight[1], bottomRight[2])
+                bottomLeft = Map.isoUntransform2(bottomLeft[1], bottomLeft[2])					
+                local left, top, right, bottom
+                left = math.ceil(topLeft[1] / Map.map.tilewidth) - 1
+                top = math.ceil(topRight[2] / Map.map.tileheight) - 1
+                right = math.ceil(bottomRight[1] / Map.map.tilewidth) + 2
+                bottom = math.ceil(bottomLeft[2] / Map.map.tileheight) + 2					
+                Map.masterGroup[layer].vars.camera = {left, top, right, bottom}					
+                for locX = left, right, 1 do
+                    for locY = top, bottom, 1 do										
+                        Core.updateTile({locX = locX, locY = locY, layer = layer})
+                        --drawLargeTile(locX, locY, layer)
+                    end
+                end
+            else		
+                --Cull and Render
+                local prevLeft = Map.masterGroup[layer].vars.camera[1]
+                local prevTop = Map.masterGroup[layer].vars.camera[2]
+                local prevRight = Map.masterGroup[layer].vars.camera[3]
+                local prevBottom = Map.masterGroup[layer].vars.camera[4]							
+                local angle = Map.masterGroup.rotation + Map.masterGroup[layer].rotation
+                while angle >= 360 do
+                    angle = angle - 360
+                end
+                while angle < 0 do
+                    angle = angle + 360
+                end					
+                local topLeftT, topRightT, bottomRightT, bottomLeftT
+                topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenTop - Camera.cullingMargin[2])}
+                topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenTop - Camera.cullingMargin[2])}
+                bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenBottom + Camera.cullingMargin[4])}
+                bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenBottom + Camera.cullingMargin[4])}					
+                local topLeft, topRight, bottomRight, bottomLeft
+                if angle >= 0 and angle < 90 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                elseif angle >= 90 and angle < 180 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                elseif angle >= 180 and angle < 270 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                elseif angle >= 270 and angle < 360 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                end
+                topLeft = Map.isoUntransform2(topLeft[1], topLeft[2])
+                topRight = Map.isoUntransform2(topRight[1], topRight[2])
+                bottomRight = Map.isoUntransform2(bottomRight[1], bottomRight[2])
+                bottomLeft = Map.isoUntransform2(bottomLeft[1], bottomLeft[2])					
+                local left, top, right, bottom
+                left = math.ceil(topLeft[1] / Map.map.tilewidth) - 1
+                top = math.ceil(topRight[2] / Map.map.tileheight) - 1
+                right = math.ceil(bottomRight[1] / Map.map.tilewidth) + 2
+                bottom = math.ceil(bottomLeft[2] / Map.map.tileheight) + 2					
+                Map.masterGroup[layer].vars.camera = {left, top, right, bottom}
+                if left > prevRight or right < prevLeft or top > prevBottom or bottom < prevTop then
+                    for locX = prevLeft, prevRight, 1 do
+                        for locY = prevTop, prevBottom, 1 do										
+                            Core.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
+                        end
+                    end
+                    for locX = left, right, 1 do
+                        for locY = top, bottom, 1 do										
+                            Core.updateTile({locX = locX, locY = locY, layer = layer})
+                        end
+                    end
+                else
+                    --left
+                    if left > prevLeft then		--cull
+                        local tLeft = left
+                        for locX = prevLeft, tLeft - 1, 1 do
+                            for locY = prevTop, prevBottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
+                            end
+                        end
+                    elseif left < prevLeft then	--render
+                        local tLeft = prevLeft
+                        for locX = left, tLeft - 1, 1 do
+                            for locY = top, bottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer})
+                            end
+                        end
+                    end				
+                    --top
+                    if top > prevTop then		--cull
+                        local tTop = top
+                        for locX = prevLeft, prevRight, 1 do
+                            for locY = prevTop, tTop - 1, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
+                            end
+                        end
+                    elseif top < prevTop then	--render
+                        local tTop = prevTop
+                        for locX = left, right, 1 do
+                            for locY = top, tTop - 1, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer})
+                            end
+                        end
+                    end				
+                    --right
+                    if right > prevRight then		--render
+                        local tRight = prevRight
+                        for locX = tRight + 1, right, 1 do
+                            for locY = top, bottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer})
+                            end
+                        end
+                    elseif right < prevRight then	--cull
+                        local tRight = right
+                        for locX = tRight + 1, prevRight, 1 do
+                            for locY = prevTop, prevBottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
+                            end
+                        end
+                    end						
+                    --bottom
+                    if bottom > prevBottom then		--render
+                        local tBottom = prevBottom
+                        for locX = left, right, 1 do
+                            for locY = tBottom + 1, bottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer})
+                            end
+                        end
+                    elseif bottom < prevBottom then	--cull
+                        local tBottom = bottom
+                        for locX = prevLeft, prevRight, 1 do
+                            for locY = tBottom + 1, prevBottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
+                            end
+                        end
+                    end
+                end				
+            end
+        end
+    else
+        for layer = 1, #Map.map.layers, 1 do
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)	
+            
+            --print(layer, cameraX)
+            
+            Camera.McameraX, Camera.McameraY = cameraX, cameraY
+            Camera.McameraLocX = cameraLocX
+            Camera.McameraLocY = cameraLocY
+            if not Map.masterGroup[layer].vars.camera then	
+                --Render view if view does not exist
+                Map.totalRects[layer] = 0
+                local angle = Map.masterGroup.rotation + Map.masterGroup[layer].rotation
+                while angle >= 360 do
+                    angle = angle - 360
+                end
+                while angle < 0 do
+                    angle = angle + 360
+                end					
+                local topLeftT, topRightT, bottomRightT, bottomLeftT
+                topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenTop - Camera.cullingMargin[2])}
+                topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenTop - Camera.cullingMargin[2])}
+                bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenBottom + Camera.cullingMargin[4])}
+                bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenBottom + Camera.cullingMargin[4])}				
+                local topLeft, topRight, bottomRight, bottomLeft
+                if angle >= 0 and angle < 90 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                elseif angle >= 90 and angle < 180 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                elseif angle >= 180 and angle < 270 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                elseif angle >= 270 and angle < 360 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                end
+                local left, top, right, bottom
+                if topLeft[1] < bottomLeft[1] then
+                    left = math.ceil(topLeft[1] / Map.map.tilewidth)
+                else
+                    left = math.ceil(bottomLeft[1] / Map.map.tilewidth)
+                end
+                if topLeft[2] < topRight[2] then
+                    top = math.ceil(topLeft[2] / Map.map.tileheight)
+                else
+                    top = math.ceil(topRight[2] / Map.map.tileheight)
+                end
+                if topRight[1] > bottomRight[1] then
+                    right = math.ceil(topRight[1] / Map.map.tilewidth)
+                else
+                    right = math.ceil(bottomRight[1] / Map.map.tilewidth)
+                end
+                if bottomRight[2] > bottomLeft[2] then
+                    bottom = math.ceil(bottomRight[2] / Map.map.tileheight)
+                else
+                    bottom = math.ceil(bottomLeft[2] / Map.map.tileheight)
+                end				
+                Map.masterGroup[layer].vars.camera = {left, top, right, bottom}	
+                --print("do1", layer)
+                --print(" ", left, prevLeft)
+                --print(" ", top, prevTop)
+                --print(" ", right, prevRight)
+                --print(" ", bottom, prevBottom)				
+                for locX = left, right, 1 do
+                    for locY = top, bottom, 1 do										
+                        Core.updateTile({locX = locX, locY = locY, layer = layer})
+                        drawCulledObjects(locX, locY, layer)
+                        drawLargeTile(locX, locY, layer)
+                    end
+                end
+                --print("=============")
+                ------------
+                --print("do", layer)
+            else	
+                --print("do2", layer)
+                --Cull and Render
+                local prevLeft = Map.masterGroup[layer].vars.camera[1]
+                local prevTop = Map.masterGroup[layer].vars.camera[2]
+                local prevRight = Map.masterGroup[layer].vars.camera[3]
+                local prevBottom = Map.masterGroup[layer].vars.camera[4]
+                local angle = Map.masterGroup.rotation + Map.masterGroup[layer].rotation
+                while angle >= 360 do
+                    angle = angle - 360
+                end
+                while angle < 0 do
+                    angle = angle + 360
+                end					
+                local topLeftT, topRightT, bottomRightT, bottomLeftT
+                topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenTop - Camera.cullingMargin[2])}
+                topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenTop - Camera.cullingMargin[2])}
+                bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenBottom + Camera.cullingMargin[4])}
+                bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenBottom + Camera.cullingMargin[4])}					
+                local topLeft, topRight, bottomRight, bottomLeft
+                if angle >= 0 and angle < 90 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                elseif angle >= 90 and angle < 180 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                elseif angle >= 180 and angle < 270 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                elseif angle >= 270 and angle < 360 then
+                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
+                    topRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
+                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
+                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
+                end
+                local left, top, right, bottom
+                if topLeft[1] < bottomLeft[1] then
+                    left = math.ceil(topLeft[1] / Map.map.tilewidth)
+                else
+                    left = math.ceil(bottomLeft[1] / Map.map.tilewidth)
+                end
+                if topLeft[2] < topRight[2] then
+                    top = math.ceil(topLeft[2] / Map.map.tileheight)
+                else
+                    top = math.ceil(topRight[2] / Map.map.tileheight)
+                end
+                if topRight[1] > bottomRight[1] then
+                    right = math.ceil(topRight[1] / Map.map.tilewidth)
+                else
+                    right = math.ceil(bottomRight[1] / Map.map.tilewidth)
+                end
+                if bottomRight[2] > bottomLeft[2] then
+                    bottom = math.ceil(bottomRight[2] / Map.map.tileheight)
+                else
+                    bottom = math.ceil(bottomLeft[2] / Map.map.tileheight)
+                end						
+                Map.masterGroup[layer].vars.camera = {left, top, right, bottom}
+                if left > prevRight or right < prevLeft or top > prevBottom or bottom < prevTop then
+                    --print("do3", layer, "==================================")
+                    --print(" ", left, prevLeft)
+                    --print(" ", top, prevTop)
+                    --print(" ", right, prevRight)
+                    --print(" ", bottom, prevBottom)
+                    for locX = prevLeft, prevRight, 1 do
+                        for locY = prevTop, prevBottom, 1 do
+                            --print("do4")										
+                            Core.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
+                            cullLargeTile(locX, locY, layer)
+                        end
+                    end
+                    for locX = left, right, 1 do
+                        for locY = top, bottom, 1 do		
+                            --print("do5")								
+                            Core.updateTile({locX = locX, locY = locY, layer = layer})
+                            drawCulledObjects(locX, locY, layer)
+                            drawLargeTile(locX, locY, layer)
+                        end
+                    end
+                    --print("=============")
+                else
+                    --left
+                    if left > prevLeft then		--cull
+                        local tLeft = left
+                        for locX = prevLeft, tLeft - 1, 1 do
+                            for locY = prevTop, prevBottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
+                                cullLargeTile(locX, locY, layer)
+                            end
+                        end
+                    elseif left < prevLeft then	--render
+                        local tLeft = prevLeft
+                        for locX = left, tLeft - 1, 1 do
+                            for locY = top, bottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer})
+                                drawCulledObjects(locX, locY, layer)
+                                drawLargeTile(locX, locY, layer)
+                            end
+                        end
+                    end				
+                    --top
+                    if top > prevTop then		--cull
+                        local tTop = top
+                        for locX = prevLeft, prevRight, 1 do
+                            for locY = prevTop, tTop - 1, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
+                                cullLargeTile(locX, locY, layer)
+                            end
+                        end
+                    elseif top < prevTop then	--render
+                        local tTop = prevTop
+                        for locX = left, right, 1 do
+                            for locY = top, tTop - 1, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer})
+                                drawCulledObjects(locX, locY, layer)
+                                drawLargeTile(locX, locY, layer)
+                            end
+                        end
+                    end				
+                    --right
+                    if right > prevRight then		--render
+                        local tRight = prevRight
+                        for locX = tRight + 1, right, 1 do
+                            for locY = top, bottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer})
+                                drawCulledObjects(locX, locY, layer)
+                                drawLargeTile(locX, locY, layer)
+                            end
+                        end
+                    elseif right < prevRight then	--cull
+                        local tRight = right
+                        for locX = tRight + 1, prevRight, 1 do
+                            for locY = prevTop, prevBottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
+                                cullLargeTile(locX, locY, layer)
+                            end
+                        end
+                    end				
+                    --bottom
+                    if bottom > prevBottom then		--render
+                        local tBottom = prevBottom
+                        for locX = left, right, 1 do
+                            for locY = tBottom + 1, bottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer})
+                                drawCulledObjects(locX, locY, layer)
+                                drawLargeTile(locX, locY, layer)
+                            end
+                        end
+                    elseif bottom < prevBottom then	--cull
+                        local tBottom = bottom
+                        for locX = prevLeft, prevRight, 1 do
+                            for locY = tBottom + 1, prevBottom, 1 do
+                                Core.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
+                                cullLargeTile(locX, locY, layer)
+                            end
+                        end
+                    end
+                end				
+            end
+        end
+    end
+    
+    --PROCESS TILE ANIMATIONS
+    if not Core.tileAnimsFrozen then
+        for key,value in pairs(syncData) do
+            syncData[key].counter = syncData[key].counter - 1
+            if syncData[key].counter <= 0 then
+                syncData[key].counter = syncData[key].time
+                syncData[key].currentFrame = syncData[key].currentFrame + 1
+                if syncData[key].currentFrame > #syncData[key].frames then
+                    syncData[key].currentFrame = 1
+                end
+            end
+        end
+        for key,value in pairs(Map.animatedTiles) do
+            if syncData[Map.animatedTiles[key].sync] then
+                Map.animatedTiles[key]:setFrame(syncData[Map.animatedTiles[key].sync].currentFrame)
+            end
+        end
+    end
+    
+    --APPLY HEIGHTMAP
+    if Map.enableHeightMap then
+        for i = 1, #Map.map.layers, 1 do
+            if Map.map.layers[i].heightMap or Map.map.heightMap then
+                local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+                local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+                local mH = Map.map.layers[i].heightMap
+                local gH = Map.map.heightMap
+                for x = Map.masterGroup[i].vars.camera[1], Map.masterGroup[i].vars.camera[3], 1 do
+                    for y = Map.masterGroup[i].vars.camera[2], Map.masterGroup[i].vars.camera[4], 1 do
+                        local locX = x
+                        local locY = y
+                        if locX < 1 - Map.map.locOffsetX then
+                            locX = locX + Map.map.layers[i].width
+                        end
+                        if locX > Map.map.layers[i].width - Map.map.locOffsetX then
+                            locX = locX - Map.map.layers[i].width
+                        end										
+                        if locY < 1 - Map.map.locOffsetY then
+                            locY = locY + Map.map.layers[i].height
+                        end
+                        if locY > Map.map.layers[i].height - Map.map.locOffsetY then
+                            locY = locY - Map.map.layers[i].height
+                        end
+                        if Map.tileObjects[i][locX] and Map.tileObjects[i][locX][locY] then
+                            local rect = Map.tileObjects[i][locX][locY]								
+                            local rectX = rect.x
+                            local rectY = rect.y
+                            local tempScaleX = rect.tempScaleX / 2
+                            local tempScaleY = rect.tempScaleY / 2
+                            local rP = rect.path
+                            if rect.heightMap then
+                                local hM = rect.heightMap									
+                                local x1, y1, x2, y2, x3, y3, x4, y4 = "x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"
+                                local a1, b1, a2, b2, a3, b3, a4, b4 = -1, -1, -1, -1, -1, -1, -1, -1									
+                                if Map.enableFlipRotation then
+                                    if Map.map.layers[i].flipRotation[locX][locY] then
+                                        local command = Map.map.layers[i].flipRotation[locX][locY]
+                                        if command == 3 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y4", "x4", "y1", "x1", "y2", "x2", "y3", "x3"
+                                            b1, b2, b3, b4 = 1, 1, 1, 1
+                                        elseif command == 5 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y2", "x2", "y3", "x3", "y4", "x4", "y1", "x1"
+                                            a1, a2, a3, a4 = 1, 1, 1, 1
+                                        elseif command == 6 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x3", "y3", "x4", "y4", "x1", "y1", "x2", "y2"
+                                            a1, b1, a2, b2, a3, b3, a4, b4 = 1, 1, 1, 1, 1, 1, 1, 1
+                                        elseif command == 2 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x2", "y2", "x1", "y1", "x4", "y4", "x3", "y3"
+                                            b1, b2, b3, b4 = 1, 1, 1, 1
+                                        elseif command == 4 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x4", "y4", "x3", "y3", "x2", "y2", "x1", "y1"
+                                            a1, a2, a3, a4 = 1, 1, 1, 1
+                                        elseif command == 1 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y1", "x1", "y4", "x4", "y3", "x3", "y2", "x2"
+                                        elseif command == 7 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y3", "x3", "y2", "x2", "y1", "x1", "y4", "x4"
+                                            a1, b1, a2, b2, a3, b3, a4, b4 = 1, 1, 1, 1, 1, 1, 1, 1
+                                        end
+                                    end
+                                end									
+                                rP["x1"] = (((cameraX - (rectX - tempScaleX)) * (1 + (hM[1] or 0))) - (cameraX - (rectX - tempScaleX))) * a1 - Map.overDraw
+                                rP["y1"] = (((cameraY - (rectY - tempScaleY)) * (1 + (hM[1] or 0))) - (cameraY - (rectY - tempScaleY))) * b1 - Map.overDraw									
+                                rP["x2"] = (((cameraX - (rectX - tempScaleX)) * (1 + (hM[2] or 0))) - (cameraX - (rectX - tempScaleX))) * a2 - Map.overDraw
+                                rP["y2"] = (((cameraY - (rectY + tempScaleY)) * (1 + (hM[2] or 0))) - (cameraY - (rectY + tempScaleY))) * b2 + Map.overDraw									
+                                rP["x3"] = (((cameraX - (rectX + tempScaleX)) * (1 + (hM[3] or 0))) - (cameraX - (rectX + tempScaleX))) * a3 + Map.overDraw
+                                rP["y3"] = (((cameraY - (rectY + tempScaleY)) * (1 + (hM[3] or 0))) - (cameraY - (rectY + tempScaleY))) * b3 + Map.overDraw									
+                                rP["x4"] = (((cameraX - (rectX + tempScaleX)) * (1 + (hM[4] or 0))) - (cameraX - (rectX + tempScaleX))) * a4 + Map.overDraw
+                                rP["y4"] = (((cameraY - (rectY - tempScaleY)) * (1 + (hM[4] or 0))) - (cameraY - (rectY - tempScaleY))) * b4 - Map.overDraw
+                            else
+                                local locXminus1 = locX - 1
+                                local locYminus1 = locY - 1
+                                local locXplus1 = locX + 1
+                                local locYplus1 = locY + 1									
+                                if Map.map.heightMap then
+                                    mH = gH
+                                end									
+                                if locXminus1 < 1 then
+                                    locXminus1 = #mH
+                                end								
+                                if locYminus1 < 1 then
+                                    locYminus1 = #mH[locX]
+                                end	
+                                if locXplus1 > #mH then
+                                    locXplus1 = 1
+                                end								
+                                if locYplus1 > #mH[locX] then
+                                    locYplus1 = 1
+                                end										
+                                local x1, y1, x2, y2, x3, y3, x4, y4 = "x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"
+                                local a1, b1, a2, b2, a3, b3, a4, b4 = -1, -1, -1, -1, -1, -1, -1, -1									
+                                if Map.enableFlipRotation then
+                                    if Map.map.layers[i].flipRotation[locX][locY] then
+                                        local command = Map.map.layers[i].flipRotation[locX][locY]
+                                        if command == 3 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y4", "x4", "y1", "x1", "y2", "x2", "y3", "x3"
+                                            b1, b2, b3, b4 = 1, 1, 1, 1
+                                        elseif command == 5 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y2", "x2", "y3", "x3", "y4", "x4", "y1", "x1"
+                                            a1, a2, a3, a4 = 1, 1, 1, 1
+                                        elseif command == 6 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x3", "y3", "x4", "y4", "x1", "y1", "x2", "y2"
+                                            a1, b1, a2, b2, a3, b3, a4, b4 = 1, 1, 1, 1, 1, 1, 1, 1
+                                        elseif command == 2 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x2", "y2", "x1", "y1", "x4", "y4", "x3", "y3"
+                                            b1, b2, b3, b4 = 1, 1, 1, 1
+                                        elseif command == 4 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x4", "y4", "x3", "y3", "x2", "y2", "x1", "y1"
+                                            a1, a2, a3, a4 = 1, 1, 1, 1
+                                        elseif command == 1 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y1", "x1", "y4", "x4", "y3", "x3", "y2", "x2"
+                                        elseif command == 7 then
+                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y3", "x3", "y2", "x2", "y1", "x1", "y4", "x4"
+                                            a1, b1, a2, b2, a3, b3, a4, b4 = 1, 1, 1, 1, 1, 1, 1, 1
+                                        end
+                                    end
+                                end	 									
+                                local tempHeight = ((mH[locX][locY] or 0) + (mH[locXminus1][locY] or 0) + (mH[locX][locYminus1] or 0) + (mH[locXminus1][locYminus1] or 0)) / 4
+                                rP[x1] = (((cameraX - (rectX - tempScaleX)) * (1 + tempHeight)) - (cameraX - (rectX - tempScaleX))) * a1 - Map.overDraw
+                                rP[y1] = (((cameraY - (rectY - tempScaleY)) * (1 + tempHeight)) - (cameraY - (rectY - tempScaleY))) * b1 - Map.overDraw																
+                                local tempHeight = ((mH[locX][locY] or 0) + (mH[locXminus1][locY] or 0) + (mH[locX][locYplus1] or 0) + (mH[locXminus1][locYplus1] or 0)) / 4
+                                rP[x2] = (((cameraX - (rectX - tempScaleX)) * (1 + tempHeight)) - (cameraX - (rectX - tempScaleX))) * a2 - Map.overDraw
+                                rP[y2] = (((cameraY - (rectY + tempScaleY)) * (1 + tempHeight)) - (cameraY - (rectY + tempScaleY))) * b2 + Map.overDraw															
+                                local tempHeight = ((mH[locX][locY] or 0) + (mH[locXplus1][locY] or 0) + (mH[locX][locYplus1] or 0) + (mH[locXplus1][locYplus1] or 0)) / 4
+                                rP[x3] = (((cameraX - (rectX + tempScaleX)) * (1 + tempHeight)) - (cameraX - (rectX + tempScaleX))) * a3 + Map.overDraw
+                                rP[y3] = (((cameraY - (rectY + tempScaleY)) * (1 + tempHeight)) - (cameraY - (rectY + tempScaleY))) * b3 + Map.overDraw															
+                                local tempHeight = ((mH[locX][locY] or 0) + (mH[locXplus1][locY] or 0) + (mH[locX][locYminus1] or 0) + (mH[locXplus1][locYminus1] or 0)) / 4
+                                rP[x4] = (((cameraX - (rectX + tempScaleX)) * (1 + tempHeight)) - (cameraX - (rectX + tempScaleX))) * a4 + Map.overDraw
+                                rP[y4] = (((cameraY - (rectY - tempScaleY)) * (1 + tempHeight)) - (cameraY - (rectY - tempScaleY))) * b4 - Map.overDraw
+                            end
+                            --------
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    local updated = false
+    if Camera.enableLighting then
+        if Light.lightingData.refreshStyle == 1 then
+            --continuous
+            local mapLayerFalloff = Map.map.properties.lightLayerFalloff
+            local mapLevelFalloff = Map.map.properties.lightLevelFalloff			
+            local startLocX = Map.masterGroup[1].vars.camera[1]
+            local startLocY = Map.masterGroup[1].vars.camera[2]
+            local endLocX = Map.masterGroup[1].vars.camera[3]
+            local endLocY = Map.masterGroup[1].vars.camera[4]				
+            for x = startLocX, endLocX, 1 do
+                for y = startLocY, endLocY, 1 do
+                    local updated = true
+                    local checked = false
+                    local locX, locY = x, y
+                    for i = 1, #Map.map.layers, 1 do
+                        if Camera.layerWrapX[i] then
+                            if locX < 1 - Map.map.locOffsetX then
+                                locX = locX + Map.map.layers[i].width
+                            elseif locX > Map.map.layers[i].width - Map.map.locOffsetX then
+                                locX = locX - Map.map.layers[i].width
+                            end
+                        end
+                        if Camera.layerWrapY[i] then
+                            if locY < 1 - Map.map.locOffsetY then
+                                locY = locY + Map.map.layers[i].height
+                            elseif locY > Map.map.layers[i].height - Map.map.locOffsetY then
+                                locY = locY - Map.map.layers[i].height
+                            end
+                        end
+                        if Map.tileObjects[i][locX] and Map.tileObjects[i][locX][locY] then
+                            local rect = Map.tileObjects[i][locX][locY]								
+                            if not rect.noDraw then	
+                                --Normal Map Point Light
+                                if rect.normalMap and Light.pointLightSource then
+                                    local lightX = Light.pointLightSource.x
+                                    local lightY = Light.pointLightSource.y
+                                    if Light.pointLightSource.pointLight then
+                                        if Light.pointLightSource.pointLight.pointLightPos then
+                                            rect.fill.effect.pointLightPos = {((lightX + Light.pointLightSource.pointLight.pointLightPos[1]) - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
+                                                ((lightY + Light.pointLightSource.pointLight.pointLightPos[2]) - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
+                                                Light.pointLightSource.pointLight.pointLightPos[3]
+                                            }
+                                        else
+                                            rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
+                                                (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
+                                                0.1
+                                            }
+                                        end
+                                        if Light.pointLightSource.pointLight.pointLightColor then
+                                            rect.fill.effect.pointLightColor = Light.pointLightSource.pointLight.pointLightColor
+                                        end
+                                        if Light.pointLightSource.pointLight.ambientLightIntensity then
+                                            rect.fill.effect.ambientLightIntensity = Light.pointLightSource.pointLight.ambientLightIntensity
+                                        end
+                                        if Light.pointLightSource.pointLight.attenuationFactors then
+                                            rect.fill.effect.attenuationFactors = Light.pointLightSource.pointLight.attenuationFactors
+                                        end 
+                                    else
+                                        rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
+                                            (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
+                                            0.1
+                                        }
+                                    end
+                                end
+                                
+                                --Tile Lighting							
+                                if Map.map.lightToggle[locX][locY] and Map.map.lightToggle[locX][locY] > Map.map.lightToggle2[locX][locY] then
+                                    rect.litBy = {}
+                                    checked = true
+                                    local layer = i
+                                    local redf, greenf, bluef = Map.map.layers[layer].redLight, Map.map.layers[layer].greenLight, Map.map.layers[layer].blueLight
+                                    if Map.map.perlinLighting then
+                                        redf = redf * Map.map.perlinLighting[locX][locY]
+                                        greenf = greenf * Map.map.perlinLighting[locX][locY]
+                                        bluef = bluef * Map.map.perlinLighting[locX][locY]
+                                    elseif Map.map.layers[layer].perlinLighting then
+                                        redf = redf * Map.map.layers[layer].perlinLighting[locX][locY]
+                                        greenf = greenf * Map.map.layers[layer].perlinLighting[locX][locY]
+                                        bluef = bluef * Map.map.layers[layer].perlinLighting[locX][locY]
+                                    end
+                                    for k = 1, #Map.map.layers, 1 do									
+                                        if Map.map.layers[k].lighting[locX][locY] then
+                                            local temp = Map.map.layers[k].lighting[locX][locY]
+                                            for key,value in pairs(temp) do
+                                                local levelDiff = math.abs(Map.getLevel(i) - Map.map.lights[key].level)
+                                                local layerDiff = math.abs(i - Map.map.lights[key].layer)											
+                                                local layerFalloff, levelFalloff
+                                                if Map.map.lights[key].layerFalloff then
+                                                    layerFalloff = Map.map.lights[key].layerFalloff
+                                                else
+                                                    layerFalloff = mapLayerFalloff
+                                                end											
+                                                if Map.map.lights[key].levelFalloff then
+                                                    levelFalloff = Map.map.lights[key].levelFalloff
+                                                else
+                                                    levelFalloff = mapLevelFalloff
+                                                end											
+                                                local tR = temp[key].light[1] - (levelDiff * levelFalloff[1]) - (layerDiff * layerFalloff[1])
+                                                local tG = temp[key].light[2] - (levelDiff * levelFalloff[2]) - (layerDiff * layerFalloff[2])
+                                                local tB = temp[key].light[3] - (levelDiff * levelFalloff[3]) - (layerDiff * layerFalloff[3])
+                                                if tR > redf then
+                                                    redf = tR
+                                                end
+                                                if tG > greenf then
+                                                    greenf = tG
+                                                end
+                                                if tB > bluef then
+                                                    bluef = tB
+                                                end													
+                                                rect.litBy[#rect.litBy + 1] = key
+                                            end
+                                        end
+                                    end								
+                                    local check = 0
+                                    if redf > rect.color[1] then
+                                        if redf - rect.color[1] <= Light.lightingData.fadeIn then
+                                            rect.color[1] = redf
+                                            check = check + 1
+                                        else
+                                            rect.color[1] = rect.color[1] + Light.lightingData.fadeIn
+                                        end
+                                    elseif redf < rect.color[1] then
+                                        if rect.color[1] - redf <= Light.lightingData.fadeOut then
+                                            rect.color[1] = redf
+                                            check = check + 1
+                                        else
+                                            rect.color[1] = rect.color[1] - Light.lightingData.fadeOut
+                                        end
+                                    else
+                                        check = check + 1
+                                    end							
+                                    if rect.color[1] > 1 then
+                                        rect.color[1] = 1
+                                    elseif rect.color[1] < 0 then
+                                        rect.color[1] = 0
+                                    end						
+                                    if greenf > rect.color[2] then
+                                        if greenf - rect.color[2] < Light.lightingData.fadeIn then
+                                            rect.color[2] = greenf
+                                            check = check + 1
+                                        else
+                                            rect.color[2] = rect.color[2] + Light.lightingData.fadeIn
+                                        end
+                                    elseif greenf < rect.color[2] then
+                                        if rect.color[2] - greenf < Light.lightingData.fadeOut then
+                                            rect.color[2] = greenf
+                                            check = check + 1
+                                        else
+                                            rect.color[2] = rect.color[2] - Light.lightingData.fadeOut
+                                        end
+                                    else
+                                        check = check + 1
+                                    end							
+                                    if rect.color[2] > 1 then
+                                        rect.color[2] = 1
+                                    elseif rect.color[2] < 0 then
+                                        rect.color[2] = 0
+                                    end													
+                                    if bluef > rect.color[3] then
+                                        if bluef - rect.color[3] < Light.lightingData.fadeIn then
+                                            rect.color[3] = bluef
+                                            check = check + 1
+                                        else
+                                            rect.color[3] = rect.color[3] + Light.lightingData.fadeIn
+                                        end
+                                    elseif bluef < rect.color[3] then
+                                        if rect.color[3] - bluef < Light.lightingData.fadeOut then
+                                            rect.color[3] = bluef
+                                            check = check + 1
+                                        else
+                                            rect.color[3] = rect.color[3] - Light.lightingData.fadeOut
+                                        end
+                                    else
+                                        check = check + 1
+                                    end							
+                                    if rect.color[3] > 1 then
+                                        rect.color[3] = 1
+                                    elseif rect.color[3] < 0 then
+                                        rect.color[3] = 0
+                                    end								
+                                    if check < 3 then
+                                        updated = false
+                                    end										
+                                    rect:setFillColor(rect.color[1], rect.color[2], rect.color[3])
+                                end								
+                            end
+                        end
+                    end
+                    if checked and updated then
+                        Map.map.lightToggle2[locX][locY] = tonumber(system.getTimer())
+                    end
+                end
+            end
+        elseif Light.lightingData.refreshStyle == 2 then
+            --columns alternator
+            local mapLayerFalloff = Map.map.properties.lightLayerFalloff
+            local mapLevelFalloff = Map.map.properties.lightLevelFalloff				
+            local startLocX = Map.masterGroup[1].vars.camera[1]
+            local startLocY = Map.masterGroup[1].vars.camera[2]
+            local endLocX = Map.masterGroup[1].vars.camera[3]
+            local endLocY = Map.masterGroup[1].vars.camera[4]						
+            local startX = startLocX + (Light.lightingData.refreshCounter - 1)
+            for x = startX, endLocX, Light.lightingData.refreshAlternator do
+                for y = startLocY, endLocY, 1 do
+                    local updated = true
+                    local checked = false
+                    local locX, locY = x, y
+                    for i = 1, #Map.map.layers, 1 do
+                        if Camera.layerWrapX[i] then
+                            if locX < 1 - Map.map.locOffsetX then
+                                locX = locX + Map.map.layers[i].width
+                            elseif locX > Map.map.layers[i].width - Map.map.locOffsetX then
+                                locX = locX - Map.map.layers[i].width
+                            end
+                        end
+                        if Camera.layerWrapY[i] then
+                            if locY < 1 - Map.map.locOffsetY then
+                                locY = locY + Map.map.layers[i].height
+                            elseif locY > Map.map.layers[i].height - Map.map.locOffsetY then
+                                locY = locY - Map.map.layers[i].height
+                            end
+                        end
+                        if Map.tileObjects[i][locX] and Map.tileObjects[i][locX][locY] then
+                            local rect = Map.tileObjects[i][locX][locY]								
+                            if not rect.noDraw then		
+                                --Normal Map Point Light
+                                if rect.normalMap and Light.pointLightSource then
+                                    local lightX = Light.pointLightSource.x
+                                    local lightY = Light.pointLightSource.y
+                                    if Light.pointLightSource.pointLight then
+                                        if Light.pointLightSource.pointLight.pointLightPos then
+                                            rect.fill.effect.pointLightPos = {((lightX + Light.pointLightSource.pointLight.pointLightPos[1]) - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
+                                                ((lightY + Light.pointLightSource.pointLight.pointLightPos[2]) - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
+                                                Light.pointLightSource.pointLight.pointLightPos[3]
+                                            }
+                                        else
+                                            rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
+                                                (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
+                                                0.1
+                                            }
+                                        end
+                                        if Light.pointLightSource.pointLight.pointLightColor then
+                                            rect.fill.effect.pointLightColor = Light.pointLightSource.pointLight.pointLightColor
+                                        end
+                                        if Light.pointLightSource.pointLight.ambientLightIntensity then
+                                            rect.fill.effect.ambientLightIntensity = Light.pointLightSource.pointLight.ambientLightIntensity
+                                        end
+                                        if Light.pointLightSource.pointLight.attenuationFactors then
+                                            rect.fill.effect.attenuationFactors = Light.pointLightSource.pointLight.attenuationFactors
+                                        end 
+                                    else
+                                        rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
+                                            (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
+                                            0.1
+                                        }
+                                        
+                                    end
+                                end
+                                
+                                --Tile Lighting						
+                                if Map.map.lightToggle[locX][locY] and Map.map.lightToggle[locX][locY] > Map.map.lightToggle2[locX][locY] then
+                                    rect.litBy = {}
+                                    checked = true
+                                    local layer = i
+                                    local redf, greenf, bluef = Map.map.layers[layer].redLight, Map.map.layers[layer].greenLight, Map.map.layers[layer].blueLight
+                                    if Map.map.perlinLighting then
+                                        redf = redf * Map.map.perlinLighting[locX][locY]
+                                        greenf = greenf * Map.map.perlinLighting[locX][locY] 
+                                        bluef = bluef * Map.map.perlinLighting[locX][locY] 
+                                    elseif Map.map.layers[layer].perlinLighting then
+                                        redf = redf * Map.map.layers[layer].perlinLighting[locX][locY] 
+                                        greenf = greenf * Map.map.layers[layer].perlinLighting[locX][locY] 
+                                        bluef = bluef * Map.map.layers[layer].perlinLighting[locX][locY] 
+                                    end
+                                    for k = 1, #Map.map.layers, 1 do									
+                                        if Map.map.layers[k].lighting[locX][locY] then
+                                            local temp = Map.map.layers[k].lighting[locX][locY]
+                                            for key,value in pairs(temp) do
+                                                local levelDiff = math.abs(Map.getLevel(i) - Map.map.lights[key].level)
+                                                local layerDiff = math.abs(i - Map.map.lights[key].layer)											
+                                                local layerFalloff, levelFalloff
+                                                if Map.map.lights[key].layerFalloff then
+                                                    layerFalloff = Map.map.lights[key].layerFalloff
+                                                else
+                                                    layerFalloff = mapLayerFalloff
+                                                end											
+                                                if Map.map.lights[key].levelFalloff then
+                                                    levelFalloff = Map.map.lights[key].levelFalloff
+                                                else
+                                                    levelFalloff = mapLevelFalloff
+                                                end											
+                                                local tR = temp[key].light[1] - (levelDiff * levelFalloff[1]) - (layerDiff * layerFalloff[1])
+                                                local tG = temp[key].light[2] - (levelDiff * levelFalloff[2]) - (layerDiff * layerFalloff[2])
+                                                local tB = temp[key].light[3] - (levelDiff * levelFalloff[3]) - (layerDiff * layerFalloff[3])
+                                                if tR > redf then
+                                                    redf = tR
+                                                end
+                                                if tG > greenf then
+                                                    greenf = tG
+                                                end
+                                                if tB > bluef then
+                                                    bluef = tB
+                                                end													
+                                                rect.litBy[#rect.litBy + 1] = key
+                                            end
+                                        end
+                                    end								
+                                    local check = 0
+                                    if redf > rect.color[1] then
+                                        if redf - rect.color[1] <= Light.lightingData.fadeIn then
+                                            rect.color[1] = redf
+                                            check = check + 1
+                                        else
+                                            rect.color[1] = rect.color[1] + Light.lightingData.fadeIn
+                                        end
+                                    elseif redf < rect.color[1] then
+                                        if rect.color[1] - redf <= Light.lightingData.fadeOut then
+                                            rect.color[1] = redf
+                                            check = check + 1
+                                        else
+                                            rect.color[1] = rect.color[1] - Light.lightingData.fadeOut
+                                        end
+                                    else
+                                        check = check + 1
+                                    end							
+                                    if rect.color[1] > 1 then
+                                        rect.color[1] = 1
+                                    elseif rect.color[1] < 0 then
+                                        rect.color[1] = 0
+                                    end						
+                                    if greenf > rect.color[2] then
+                                        if greenf - rect.color[2] < Light.lightingData.fadeIn then
+                                            rect.color[2] = greenf
+                                            check = check + 1
+                                        else
+                                            rect.color[2] = rect.color[2] + Light.lightingData.fadeIn
+                                        end
+                                    elseif greenf < rect.color[2] then
+                                        if rect.color[2] - greenf < Light.lightingData.fadeOut then
+                                            rect.color[2] = greenf
+                                            check = check + 1
+                                        else
+                                            rect.color[2] = rect.color[2] - Light.lightingData.fadeOut
+                                        end
+                                    else
+                                        check = check + 1
+                                    end							
+                                    if rect.color[2] > 1 then
+                                        rect.color[2] = 1
+                                    elseif rect.color[2] < 0 then
+                                        rect.color[2] = 0
+                                    end													
+                                    if bluef > rect.color[3] then
+                                        if bluef - rect.color[3] < Light.lightingData.fadeIn then
+                                            rect.color[3] = bluef
+                                            check = check + 1
+                                        else
+                                            rect.color[3] = rect.color[3] + Light.lightingData.fadeIn
+                                        end
+                                    elseif bluef < rect.color[3] then
+                                        if rect.color[3] - bluef < Light.lightingData.fadeOut then
+                                            rect.color[3] = bluef
+                                            check = check + 1
+                                        else
+                                            rect.color[3] = rect.color[3] - Light.lightingData.fadeOut
+                                        end
+                                    else
+                                        check = check + 1
+                                    end							
+                                    if rect.color[3] > 1 then
+                                        rect.color[3] = 1
+                                    elseif rect.color[3] < 0 then
+                                        rect.color[3] = 0
+                                    end								
+                                    if check < 3 then
+                                        updated = false
+                                    end										
+                                    rect:setFillColor(rect.color[1], rect.color[2], rect.color[3])
+                                end								
+                            end
+                        end
+                    end
+                    if checked and updated then
+                        Map.map.lightToggle2[locX][locY] = tonumber(system.getTimer())
+                    end
+                end
+            end
+            Light.lightingData.refreshCounter = Light.lightingData.refreshCounter + 1
+            if Light.lightingData.refreshCounter > Light.lightingData.refreshAlternator then
+                Light.lightingData.refreshCounter = 1
+            end
+        end
+    end
+    
+    --Fade and Tint layers
+    for i = 1, #Map.map.layers, 1 do
+        if Map.masterGroup[i].vars.deltaFade then
+            Map.masterGroup[i].vars.tempAlpha = Map.masterGroup[i].vars.tempAlpha - Map.masterGroup[i].vars.deltaFade[1]
+            if Map.masterGroup[i].vars.tempAlpha > 1 then
+                Map.masterGroup[i].vars.tempAlpha = 1
+            end
+            if Map.masterGroup[i].vars.tempAlpha < 0 then
+                Map.masterGroup[i].vars.tempAlpha = 0
+            end
+            if Map.map.orientation == Map.Type.Isometric then
+                if Map.isoSort == 1 then
+                    Map.masterGroup[i].alpha = Map.masterGroup[i].vars.tempAlpha
+                    Map.masterGroup[i].vars.alpha = Map.masterGroup[i].vars.tempAlpha
+                else
+                    for row = 1, #displayGroups, 1 do
+                        displayGroups[row].layers[i].alpha = Map.masterGroup[i].vars.tempAlpha
+                    end
+                end
+            else
+                Map.masterGroup[i].alpha = Map.masterGroup[i].vars.tempAlpha
+            end
+            Map.masterGroup[i].vars.alpha = Map.masterGroup[i].vars.tempAlpha
+            table.remove(Map.masterGroup[i].vars.deltaFade, 1)
+            if not Map.masterGroup[i].vars.deltaFade[1] then
+                Map.masterGroup[i].vars.deltaFade = nil
+                Map.masterGroup[i].vars.tempAlpha = nil
+            end
+        end
+        if Map.masterGroup[i].vars.deltaTint then
+            Map.map.layers[i].redLight = Map.map.layers[i].redLight - Map.masterGroup[i].vars.deltaTint[1][1]
+            Map.map.layers[i].greenLight = Map.map.layers[i].greenLight - Map.masterGroup[i].vars.deltaTint[2][1]
+            Map.map.layers[i].blueLight = Map.map.layers[i].blueLight - Map.masterGroup[i].vars.deltaTint[3][1]				
+            for x = Map.masterGroup[i].vars.camera[1], Map.masterGroup[i].vars.camera[3], 1 do
+                for y = Map.masterGroup[i].vars.camera[2], Map.masterGroup[i].vars.camera[4], 1 do
+                    if Map.tileObjects[i][x] and Map.tileObjects[i][x][y] and not Map.tileObjects[i][x][y].noDraw then
+                        Map.tileObjects[i][x][y]:setFillColor(Map.map.layers[i].redLight, Map.map.layers[i].greenLight, Map.map.layers[i].blueLight)
+                        if not Map.tileObjects[i][x][y].currentColor then
+                            Map.tileObjects[i][x][y].currentColor = {Map.map.layers[i].redLight, 
+                                Map.map.layers[i].greenLight, 
+                                Map.map.layers[i].blueLight
+                            }
+                        end
+                    end
+                end
+            end				
+            table.remove(Map.masterGroup[i].vars.deltaTint[1], 1)
+            table.remove(Map.masterGroup[i].vars.deltaTint[2], 1)
+            table.remove(Map.masterGroup[i].vars.deltaTint[3], 1)
+            if not Map.masterGroup[i].vars.deltaTint[1][1] then
+                Map.masterGroup[i].vars.deltaTint = nil
+            end
+        end
+        if Map.masterGroup[i].alpha <= 0 and Map.masterGroup[i].isVisible then
+            Map.masterGroup[i].isVisible = false
+            Map.masterGroup[i].vars.isVisible = false
+        elseif Map.masterGroup[i].alpha > 0 and not Map.masterGroup[i].isVisible then
+            Map.masterGroup[i].isVisible = true
+            Map.masterGroup[i].vars.isVisible = true
+        end
+    end
+    
+    --Fade tiles
+    for key,value in pairs(Map.fadingTiles) do
+        local tile = Map.fadingTiles[key]
+        tile.tempAlpha = tile.tempAlpha - tile.deltaFade[1]
+        if tile.tempAlpha > 1 then
+            tile.tempAlpha = 1
+        end
+        if tile.tempAlpha < 0 then
+            tile.tempAlpha = 0
+        end
+        tile.alpha = tile.tempAlpha
+        table.remove(tile.deltaFade, 1)
+        if not tile.deltaFade[1] then
+            tile.deltaFade = nil
+            tile.tempAlpha = nil
+            Map.fadingTiles[tile] = nil
+        end
+    end
+    
+    --Tint tiles
+    for key,value in pairs(Map.tintingTiles) do
+        local tile = Map.tintingTiles[key]
+        if Map.tileObjects[tile.layer][tile.locX] and Map.tileObjects[tile.layer][tile.locX][tile.locY] then
+            tile.currentColor[1] = tile.currentColor[1] - tile.deltaTint[1][1]
+            tile.currentColor[2] = tile.currentColor[2] - tile.deltaTint[2][1]
+            tile.currentColor[3] = tile.currentColor[3] - tile.deltaTint[3][1]
+            for i = 1, 3, 1 do
+                if tile.currentColor[i] > 1 then
+                    tile.currentColor[i] = 1
+                end
+                if tile.currentColor[i] < 0 then
+                    tile.currentColor[i] = 0
+                end
+            end
+            tile:setFillColor(tile.currentColor[1], tile.currentColor[2], tile.currentColor[3])
+            table.remove(tile.deltaTint[1], 1)
+            table.remove(tile.deltaTint[2], 1)
+            table.remove(tile.deltaTint[3], 1)
+            if not tile.deltaTint[1][1] then
+                tile.deltaTint = nil
+                Map.tintingTiles[tile] = nil
+            end
+        else
+            Map.tintingTiles[key] = nil
+        end
+    end
+    
+    --Zoom Map.map
+    if Camera.deltaZoom then
+        Camera.currentScale = Camera.currentScale - Camera.deltaZoom[1]
+        Map.masterGroup.xScale = Camera.currentScale
+        Map.masterGroup.yScale = Camera.currentScale
+        table.remove(Camera.deltaZoom, 1)
+        if not Camera.deltaZoom[1] then
+            Camera.deltaZoom = nil
+        end
+    end
+    
+    if Map.masterGroup.xScale < Camera.minZoom then
+        Map.masterGroup.xScale = Camera.minZoom
+    elseif Map.masterGroup.xScale > Camera.maxZoom then
+        Map.masterGroup.xScale = Camera.maxZoom
+    end
+    
+    if Map.masterGroup.yScale < Camera.minZoom then
+        Map.masterGroup.yScale = Camera.minZoom
+    elseif Map.masterGroup.yScale > Camera.maxZoom then
+        Map.masterGroup.yScale = Camera.maxZoom
+    end
+    
+    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+    Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+    if Map.map.orientation == Map.Type.Isometric then
+        local isoPos = Map.isoUntransform2(Camera.McameraX, Camera.McameraY)
+        Camera.McameraX = isoPos[1]
+        Camera.McameraY = isoPos[2]
+    end
+    Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
+    Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
+end
+
+-----------------------------------------------------------
+
+local count556 = 0
+Core.updateTile = function(params)
+    --local locX, locY = params.locX, params.locY
+    local locX, locY
+    if params.locX then
+        locX = params.locX
+    elseif params.levelPosX then
+        locX = math.ceil(params.levelPosX / Map.map.tilewidth)
+    end
+    if params.locY then
+        locY = params.locY
+    elseif params.levelPosY then
+        locY = math.ceil(params.levelPosY / Map.map.tileheight)
+    end
+    local layer = params.layer
+    local tile = params.tile
+    local cameraX, cameraY, cameraLocX, cameraLocY = Camera.McameraX, Camera.McameraY, Camera.McameraLocX, Camera.McameraLocY
+    if params.cameraX then
+        cameraX = cameraX
+    end
+    if params.cameraY then
+        cameraY = cameraY
+    end
+    if params.cameraLocX then
+        cameraLocX = cameraLocX
+    end
+    if params.cameraLocY then
+        cameraLocY = cameraLocY
+    end
+    Camera.McameraX, Camera.McameraY, Camera.McameraLocX, Camera.McameraLocY = cameraX, cameraY, cameraLocX, cameraLocY
+    
+    local toggleBreak = false
+    
+    if locX < 1 - Map.map.locOffsetX or locX > Map.map.layers[layer].width - Map.map.locOffsetX then
+        if not Camera.layerWrapX[layer] then
+            toggleBreak = true
+        end
+    end
+    if locY < 1 - Map.map.locOffsetY or locY > Map.map.layers[layer].height - Map.map.locOffsetY then
+        if not Camera.layerWrapY[layer] then
+            toggleBreak = true
+        end
+    end
+    
+    if not toggleBreak then
+        if locX < 1 - Map.map.locOffsetX then
+            locX = locX + Map.map.layers[layer].width
+        end
+        if locX > Map.map.layers[layer].width - Map.map.locOffsetX then
+            locX = locX - Map.map.layers[layer].width
+        end				
+        
+        if locY < 1 - Map.map.locOffsetY then
+            locY = locY + Map.map.layers[layer].height
+        end
+        if locY > Map.map.layers[layer].height - Map.map.locOffsetY then
+            locY = locY - Map.map.layers[layer].height
+        end
+        local isOwner = true
+        if not tile then
+            tile = Map.map.layers[layer].world[locX][locY]
+        end
+        
+        local temp = nil
+        if Map.tileObjects[layer][locX] and Map.tileObjects[layer][locX][locY] then		
+            --print("*", locX, locY, layer)		
+            temp = Map.tileObjects[layer][locX][locY].index
+            if params.owner then
+                isOwner = false
+                if Map.tileObjects[layer][locX][locY].owner == params.owner and tile ~= Map.tileObjects[layer][locX][locY].index then
+                    isOwner = true
+                end
+            end
+            --print("do9")
+            if isOwner then
+                if dont then
+                    if not Map.tileObjects[layer][locX][locY].noDraw then
+                        if Map.tileObjects[layer][locX][locY].sync then
+                            Map.animatedTiles[Map.tileObjects[layer][locX][locY]] = nil
+                        end
+                        Map.tileObjects[layer][locX][locY]:removeSelf()
+                        Map.totalRects[layer] = Map.totalRects[layer] - 1
+                    end
+                end
+                
+                local frameIndex = Map.map.layers[layer].world[locX][locY]
+                local tileSetIndex = 1
+                for i = 1, #Map.map.tilesets, 1 do
+                    if frameIndex >= Map.map.tilesets[i].firstgid then
+                        tileSetIndex = i
+                    else
+                        break
+                    end
+                end
+                
+                if tile == -1 then
+                    --print("do7")
+                    local mT = Map.map.tilesets[tileSetIndex]
+                    if mT.tilewidth > Map.map.tilewidth or mT.tileheight > Map.map.tileheight  then
+                        --print("do2")
+                        local width = math.ceil(mT.tilewidth / Map.map.tilewidth)
+                        local height = math.ceil(mT.tileheight / Map.map.tileheight)
+                        
+                        local left, top, right, bottom = locX, locY - height + 1, locX + width - 1, locY
+                        
+                        if (left > Map.masterGroup[layer].vars.camera[3] or right < Map.masterGroup[layer].vars.camera[1]or
+                            top > Map.masterGroup[layer].vars.camera[4] or bottom < Map.masterGroup[layer].vars.camera[2]) or params.forceCullLargeTile then
+                            --print("do3")								
+                            
+                            --print("offscreen")
+                            if not Map.tileObjects[layer][locX][locY].noDraw then
+                                if Map.tileObjects[layer][locX][locY].sync then
+                                    Map.animatedTiles[Map.tileObjects[layer][locX][locY]] = nil
+                                end
+                                Map.tileObjects[layer][locX][locY]:removeSelf()
+                                Map.totalRects[layer] = Map.totalRects[layer] - 1
+                            end
+                            Map.tileObjects[layer][locX][locY] = nil
+                            
+                        else
+                            --print("not offscreen")
+                        end
+                    else
+                        if not Map.tileObjects[layer][locX][locY].noDraw then
+                            if Map.tileObjects[layer][locX][locY].sync then
+                                Map.animatedTiles[Map.tileObjects[layer][locX][locY]] = nil
+                            end
+                            Map.tileObjects[layer][locX][locY]:removeSelf()
+                            Map.totalRects[layer] = Map.totalRects[layer] - 1
+                        end
+                        Map.tileObjects[layer][locX][locY] = nil
+                    end
+                else
+                    --print("do8")
+                    if not Map.tileObjects[layer][locX][locY].noDraw then
+                        if Map.tileObjects[layer][locX][locY].sync then
+                            Map.animatedTiles[Map.tileObjects[layer][locX][locY]] = nil
+                        end
+                        Map.tileObjects[layer][locX][locY]:removeSelf()
+                        Map.totalRects[layer] = Map.totalRects[layer] - 1
+                    end
+                    Map.tileObjects[layer][locX][locY] = nil
+                end	
+                --Map.tileObjects[layer][locX][locY] = nil
+                
+                
+            else
+                tile = 0
+            end
+        end
+        if tile == 0 and isOwner then
+            Map.map.layers[layer].world[locX][locY] = tile
+        end
+        
+        if tile > 0 then
+            --print("do", locX, locY, layer)
+            Map.map.layers[layer].world[locX][locY] = tile	
+            count556 = count556 + 1
+            local levelPosX = locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
+            local levelPosY = locY * Map.map.tileheight - (Map.map.tileheight / 2)
+            if Camera.layerWrapX[layer] then
+                if cameraLocX - locX < Map.map.layers[layer].width / -2 then
+                    --wrap around to the left
+                    levelPosX = levelPosX - Map.map.layers[layer].width * Map.map.tilewidth
+                elseif cameraLocX - locX > Map.map.layers[layer].width / 2 then
+                    --wrap around to the right
+                    levelPosX = levelPosX + Map.map.layers[layer].width * Map.map.tilewidth
+                end
+            end
+            if Camera.layerWrapY[layer] then
+                if cameraLocY - locY < Map.map.layers[layer].height / -2 then
+                    --wrap around to the top
+                    levelPosY = levelPosY - Map.map.layers[layer].height * Map.map.tileheight
+                elseif cameraLocY - locY > Map.map.layers[layer].height / 2 then
+                    --wrap around to the bottom
+                    levelPosY = levelPosY + Map.map.layers[layer].height * Map.map.tileheight
+                end
+            end
+            if Map.map.orientation == Map.Type.Isometric then
+                local isoPos = Map.isoTransform2(levelPosX, levelPosY)
+                levelPosX = isoPos[1]
+                levelPosY = isoPos[2]
+            end
+            local frameIndex = tile
+            local tileSetIndex = 1
+            for i = 1, #Map.map.tilesets, 1 do
+                if frameIndex >= Map.map.tilesets[i].firstgid then
+                    tileSetIndex = i
+                else
+                    break
+                end
+            end
+            frameIndex = frameIndex - (Map.map.tilesets[tileSetIndex].firstgid - 1)
+            local tileStr = tostring(frameIndex - 1)
+            local tempScaleX = Map.map.tilesets[tileSetIndex].tilewidth
+            local tempScaleY = Map.map.tilesets[tileSetIndex].tileheight
+            local offsetX = tempScaleX / 2 - Map.map.tilewidth / 2
+            local offsetY = tempScaleY / 2 - Map.map.tileheight / 2			
+            local listenerCheck = false
+            local offsetZ = 0				
+            if Map.map.orientation == Map.Type.Isometric then
+                tempScaleX = tempScaleX / Map.isoScaleMod + Map.overDraw
+                tempScaleY = tempScaleY / Map.isoScaleMod + Map.overDraw
+                offsetY = offsetY / Map.isoScaleMod
+            else
+                tempScaleX = tempScaleX + Map.overDraw
+                tempScaleY = tempScaleY + Map.overDraw
+            end				
+            local tileProps
+            if Map.map.tilesets[tileSetIndex].tileproperties then
+                if Map.map.tilesets[tileSetIndex].tileproperties[tileStr] then
+                    tileProps = Map.map.tilesets[tileSetIndex].tileproperties[tileStr]
+                    if tileProps["offsetZ"] then
+                        offsetZ = tonumber(tileProps["offsetZ"])
+                    end
+                end
+            end				
+            local paint
+            local normalMap = false
+            if Map.enableNormalMaps then
+                if Map.normalSets[tileSetIndex] then
+                    if not tileProps or not tileProps["normalMap"] or tileProps["normalMap"] ~= "false" then
+                        paint = {
+                            type = "composite",
+                            paint1 = {type = "image", sheet = Map.tileSets[tileSetIndex], frame = frameIndex},
+                            paint2 = {type = "image", sheet = Map.normalSets[tileSetIndex], frame = frameIndex}
+                        }
+                        normalMap = true
+                    else
+                        --paint = {type = "image", sheet = Map.tileSets[tileSetIndex], frame = frameIndex}
+                    end
+                elseif Map.map.defaultNormalMap then
+                    paint = {
+                        type = "composite",
+                        paint1 = {type = "image", sheet = Map.tileSets[tileSetIndex], frame = frameIndex},
+                        paint2 = {type = "image", filename = Map.map.defaultNormalMap}
+                    }
+                    normalMap = true
+                else
+                    --paint = {type = "image", sheet = Map.tileSets[tileSetIndex], frame = frameIndex}
+                end
+            else
+                --paint = {type = "image", sheet = Map.tileSets[tileSetIndex], frame = frameIndex}
+            end
+            
+            local render = true
+            if (tileProps and params.onlyPhysics and not tileProps["physics"]) or (not tileProps and params.onlyPhysics) then
+                render = false
+            end
+            
+            if render then
+                
+                --print("do")
+                if tileProps then
+                    --print("do")
+                    if not tileProps["noDraw"] and not Map.map.tilesets[tileSetIndex].properties["noDraw"] and not Map.map.layers[layer].properties["noDraw"] then
+                        if tileProps["animFrames"] then
+                            Map.tileObjects[layer][locX][locY] = display.newSprite(Map.masterGroup[layer][1],Map.tileSets[tileSetIndex], tileProps["sequenceData"])
+                            Map.tileObjects[layer][locX][locY].xScale = tempScaleX / Map.map.tilewidth
+                            Map.tileObjects[layer][locX][locY].yScale = tempScaleY / Map.map.tileheight
+                            Map.tileObjects[layer][locX][locY]:setSequence("null")
+                            Map.tileObjects[layer][locX][locY].sync = tileProps["animSync"]
+                            Map.animatedTiles[Map.tileObjects[layer][locX][locY]] = Map.tileObjects[layer][locX][locY]
+                        else
+                            if normalMap then
+                                Map.tileObjects[layer][locX][locY] = display.newRect(Map.masterGroup[layer][1], 0, 0, tempScaleX, tempScaleY)
+                                Map.tileObjects[layer][locX][locY].fill = paint
+                                Map.tileObjects[layer][locX][locY].fill.effect = "composite.normalMapWith1PointLight"
+                                Map.tileObjects[layer][locX][locY].normalMap = true
+                            else
+                                Map.tileObjects[layer][locX][locY] = display.newImageRect(Map.masterGroup[layer][1], 
+                                Map.tileSets[tileSetIndex], frameIndex, tempScaleX, tempScaleY
+                                )
+                            end
+                        end
+                    else
+                        Map.tileObjects[layer][locX][locY] = {}
+                        Map.tileObjects[layer][locX][locY].noDraw = true
+                    end
+                    Map.tileObjects[layer][locX][locY].properties = tileProps
+                    listenerCheck = Map.tileObjects[layer][locX][locY]
+                else
+                    if not Map.map.tilesets[tileSetIndex].properties["noDraw"] and not Map.map.layers[layer].properties["noDraw"] then
+                        if normalMap then
+                            Map.tileObjects[layer][locX][locY] = display.newRect(Map.masterGroup[layer][1], 0, 0, tempScaleX, tempScaleY)
+                            Map.tileObjects[layer][locX][locY].fill = paint
+                            Map.tileObjects[layer][locX][locY].fill.effect = "composite.normalMapWith1PointLight"
+                            Map.tileObjects[layer][locX][locY].normalMap = true
+                        else
+                            --print(layer, locX, locY)
+                            --print(Map.tileObjects[layer][locX])
+                            Map.tileObjects[layer][locX][locY] = display.newImageRect(Map.masterGroup[layer][1], 
+                            Map.tileSets[tileSetIndex], frameIndex, tempScaleX, tempScaleY
+                            )
+                        end
+                    else
+                        Map.tileObjects[layer][locX][locY] = {}
+                        Map.tileObjects[layer][locX][locY].noDraw = true
+                    end
+                end
+                local rect = Map.tileObjects[layer][locX][locY]
+                rect.x = levelPosX + offsetX
+                rect.y = levelPosY - offsetY
+                --print(Map.masterGroup[1], Map.masterGroup[2], Map.masterGroup[3], Map.masterGroup[4], Map.masterGroup[5], Map.masterGroup[6], Map.masterGroup[7])
+                --print(locX, locY, tempScaleX, tempScaleY, rect.x, rect.y, Map.masterGroup[layer].x, Map.masterGroup[layer].y)
+                rect.levelPosX = rect.x
+                rect.levelPosY = rect.y
+                rect.layer = layer
+                rect.level = Map.map.layers[layer].properties.level
+                rect.locX = locX
+                rect.locY = locY
+                rect.index = frameIndex
+                rect.tileSet = tileSetIndex
+                rect.tile = tileStr
+                rect.tempScaleX = tempScaleX
+                rect.tempScaleY = tempScaleY
+                if normalMap and Light.pointLightSource then
+                    local lightX = Light.pointLightSource.x
+                    local lightY = Light.pointLightSource.y
+                    if Light.pointLightSource.pointLight then
+                        if Light.pointLightSource.pointLight.pointLightPos then
+                            rect.fill.effect.pointLightPos = {((lightX + Light.pointLightSource.pointLight.pointLightPos[1]) - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
+                                ((lightY + Light.pointLightSource.pointLight.pointLightPos[2]) - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
+                                Light.pointLightSource.pointLight.pointLightPos[3]
+                            }
+                        else
+                            rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
+                                (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
+                                0.1
+                            }
+                        end
+                        if Light.pointLightSource.pointLight.pointLightColor then
+                            rect.fill.effect.pointLightColor = Light.pointLightSource.pointLight.pointLightColor
+                        end
+                        if Light.pointLightSource.pointLight.ambientLightIntensity then
+                            rect.fill.effect.ambientLightIntensity = Light.pointLightSource.pointLight.ambientLightIntensity
+                        end
+                        if Light.pointLightSource.pointLight.attenuationFactors then
+                            rect.fill.effect.attenuationFactors = Light.pointLightSource.pointLight.attenuationFactors
+                        end 
+                    else
+                        rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
+                            (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
+                            0.1
+                        }
+                    end
+                end
+                if params.owner then
+                    rect.owner = params.owner
+                end
+                
+                if not rect.noDraw then
+                    Map.totalRects[layer] = Map.totalRects[layer] + 1
+                    
+                    if Map.map.orientation == Map.Type.Isometric then
+                        if Map.isoSort == 1 then
+                            Map.masterGroup[layer][locX + locY - 1][1]:insert(Map.tileObjects[layer][locX][locY])
+                        elseif Map.isoSort == 2 then
+                            
+                        end
+                    end
+                    
+                    if tileProps then
+                        if tileProps["path"] then
+                            local path = json.decode(tileProps["path"])
+                            local rectpath = rect.path
+                            rect.pathToggle = true
+                            rectpath.x1 = path[1]
+                            rectpath.y1 = path[2]
+                            rectpath.x2 = path[3]
+                            rectpath.y2 = path[4]
+                            rectpath.x3 = path[5]
+                            rectpath.y3 = path[6]
+                            rectpath.x4 = path[7]
+                            rectpath.y4 = path[8]
+                        end
+                        if tileProps["heightMap"] then
+                            rect.heightMap = json.decode(tileProps["heightMap"])
+                        end
+                    end
+                    
+                    if Camera.enableLighting then
+                        rect.litBy = {}
+                        local mapLayerFalloff = Map.map.properties.lightLayerFalloff
+                        local mapLevelFalloff = Map.map.properties.lightLevelFalloff
+                        local redf, greenf, bluef = Map.map.layers[layer].redLight, Map.map.layers[layer].greenLight, Map.map.layers[layer].blueLight
+                        if Map.map.perlinLighting then
+                            redf = redf * Map.map.perlinLighting[locX][locY]
+                            greenf = greenf * Map.map.perlinLighting[locX][locY]
+                            bluef = bluef * Map.map.perlinLighting[locX][locY]
+                        elseif Map.map.layers[layer].perlinLighting then
+                            redf = redf * Map.map.layers[layer].perlinLighting[locX][locY]
+                            greenf = greenf * Map.map.layers[layer].perlinLighting[locX][locY]
+                            bluef = bluef * Map.map.layers[layer].perlinLighting[locX][locY]
+                        end
+                        for i = 1, #Map.map.layers, 1 do
+                            if Map.map.layers[i].lighting[locX][locY] then
+                                local temp = Map.map.layers[i].lighting[locX][locY]
+                                for key,value in pairs(temp) do
+                                    local levelDiff = math.abs(Map.getLevel(layer) - Map.map.lights[key].level)
+                                    local layerDiff = math.abs(layer - Map.map.lights[key].layer)
+                                    
+                                    local layerFalloff, levelFalloff
+                                    if Map.map.lights[key].layerFalloff then
+                                        layerFalloff = Map.map.lights[key].layerFalloff
+                                    else
+                                        layerFalloff = mapLayerFalloff
+                                    end
+                                    
+                                    if Map.map.lights[key].levelFalloff then
+                                        levelFalloff = Map.map.lights[key].levelFalloff
+                                    else
+                                        levelFalloff = mapLevelFalloff
+                                    end
+                                    local tR = temp[key].light[1] - (levelDiff * levelFalloff[1]) - (layerDiff * layerFalloff[1])
+                                    local tG = temp[key].light[2] - (levelDiff * levelFalloff[2]) - (layerDiff * layerFalloff[2])
+                                    local tB = temp[key].light[3] - (levelDiff * levelFalloff[3]) - (layerDiff * layerFalloff[3])
+                                    
+                                    if tR > redf then
+                                        redf = tR
+                                    end
+                                    if tG > greenf then
+                                        greenf = tG
+                                    end
+                                    if tB > bluef then
+                                        bluef = tB
+                                    end
+                                    
+                                    rect.litBy[#rect.litBy + 1] = key
+                                end
+                            end
+                        end
+                        rect:setFillColor(redf, greenf, bluef)
+                        rect.color = {redf, greenf, bluef}
+                    else
+                        local redf, greenf, bluef = Map.map.layers[layer].redLight, Map.map.layers[layer].greenLight, Map.map.layers[layer].blueLight
+                        if Map.map.perlinLighting then	
+                            redf = redf * Map.map.perlinLighting[locX][locY]
+                            greenf = greenf * Map.map.perlinLighting[locX][locY]
+                            bluef = bluef * Map.map.perlinLighting[locX][locY]
+                        elseif Map.map.layers[layer].perlinLighting then
+                            redf = redf * Map.map.layers[layer].perlinLighting[locX][locY]
+                            greenf = greenf * Map.map.layers[layer].perlinLighting[locX][locY]
+                            bluef = bluef * Map.map.layers[layer].perlinLighting[locX][locY]
+                        end
+                        rect:setFillColor(redf, greenf, bluef)
+                    end
+                    
+                    if Map.enableFlipRotation then
+                        if Map.map.layers[layer].flipRotation[locX][locY] or Map.map.layers[layer].flipRotation[locX][tostring(locY)] then
+                            local command
+                            if Map.map.layers[layer].flipRotation[locX][locY] then
+                                command = Map.map.layers[layer].flipRotation[locX][locY]
+                            else
+                                command = Map.map.layers[layer].flipRotation[locX][tostring(locY)]
+                                Map.map.layers[layer].flipRotation[locX][locY] = command
+                                Map.map.layers[layer].flipRotation[locX][tostring(locY)] = nil
+                            end
+                            if command == 3 then
+                                rect.rotation = 270
+                            elseif command == 5 then
+                                rect.rotation = 90
+                            elseif command == 6 then
+                                rect.rotation = 180
+                            elseif command == 2 then
+                                rect.yScale = -1
+                            elseif command == 4 then
+                                rect.xScale = -1
+                            elseif command == 1 then
+                                rect.rotation = 90
+                                rect.yScale = -1
+                            elseif command == 7 then
+                                rect.rotation = -90
+                                rect.yScale = -1
+                            end
+                        end
+                    end	
+                    
+                    rect.makeSprite = function(self)
+                        local kind = "imageRect"
+                        if rect.sync then
+                            kind = "sprite"
+                            Sprites.tempObjects[#Sprites.tempObjects + 1] = display.newSprite(Map.masterGroup[layer],Map.tileSets[tileSetIndex], 
+                            tileProps["sequenceData"])
+                            Sprites.tempObjects[#Sprites.tempObjects].xScale = Map.findScaleX(worldScaleX, layer)
+                            Sprites.tempObjects[#Sprites.tempObjects].yScale = Map.findScaleY(worldScaleY, layer)
+                            Sprites.tempObjects[#Sprites.tempObjects].layer = layer
+                            Sprites.tempObjects[#Sprites.tempObjects]:setSequence("null")
+                            Sprites.tempObjects[#Sprites.tempObjects].sync = tileProps["animSync"]
+                        else
+                            Sprites.tempObjects[#Sprites.tempObjects + 1] = display.newImageRect(Map.masterGroup[layer], 
+                            Map.tileSets[tileSetIndex], frameIndex, tempScaleX, tempScaleY
+                            )
+                        end
+                        local spriteName = ""..layer..locX..locY
+                        local setup = {layer = layer, kind = kind, locX = locX, locY = locY, 
+                            levelWidth = tempScaleX, levelHeight = tempScaleY, 
+                            offsetX = offsetX, offsetY = offsetY * -1, name = spriteName
+                        }
+                        Sprites.addSprite(Sprites.tempObjects[#Sprites.tempObjects], setup)
+                        Sprites.tempObjects[#Sprites.tempObjects].width = tempScaleX
+                        Sprites.tempObjects[#Sprites.tempObjects].height = tempScaleY
+                        if Map.tileObjects[layer][locX][locY].bodyType then
+                            physics.addBody( Sprites.tempObjects[#Sprites.tempObjects], bodyType, {density = density, 
+                                friction = friction, 
+                                bounce = bounce,
+                                radius = radius,
+                                shape = shape2,
+                                filter = filter
+                            })
+                            if rect.properties and rect.properties.isAwake then
+                                if rect.properties.isAwake == "true" then
+                                    Sprites.tempObjects[#Sprites.tempObjects].isAwake = true
+                                else
+                                    Sprites.tempObjects[#Sprites.tempObjects].isAwake = false
+                                end
+                            else
+                                Sprites.tempObjects[#Sprites.tempObjects].isAwake = PhysicsData.layer[layer].isAwake
+                            end
+                            if rect.properties and rect.properties.isBodyActive then
+                                if rect.properties.isBodyActive == "true" then
+                                    Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = true
+                                else
+                                    Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = false
+                                end
+                            else
+                                Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = PhysicsData.layer[layer].isActive
+                            end
+                        end
+                        if Sprites.tempObjects[#Sprites.tempObjects].sync then
+                            Sprites.tempObjects[#Sprites.tempObjects]:setSequence("null")
+                            Sprites.tempObjects[#Sprites.tempObjects]:play()
+                        end
+                        return Sprites.tempObjects[#Sprites.tempObjects]
+                    end
+                    
+                    if PhysicsData.enablePhysics[layer] then
+                        local bodyType, density, friction, bounce, radius, shape2, filter
+                        bodyType = PhysicsData.layer[layer].defaultBodyType
+                        density = PhysicsData.layer[layer].defaultDensity
+                        friction = PhysicsData.layer[layer].defaultFriction
+                        bounce = PhysicsData.layer[layer].defaultBounce
+                        radius = PhysicsData.layer[layer].defaultRadius
+                        filter = PhysicsData.layer[layer].defaultFilter
+                        
+                        if Map.map.layers[layer].properties["forceDefaultPhysics"] or tileProps then
+                            if Map.map.layers[layer].properties["forceDefaultPhysics"] or
+                                tileProps["physics"] == "true" or 
+                                tileProps["shapeID"] then
+                                local tempTileProps = false
+                                if not tileProps then
+                                    tileProps = {}
+                                    tempTileProps = true
+                                end
+                                local scaleFactor = 1
+                                
+                                local data = nil
+                                if tileProps["physicsSource"] then
+                                    if tileProps["physicsSourceScale"] then
+                                        scaleFactor = tonumber(tileProps["physicsSourceScale"])
+                                    end
+                                    local source = tileProps["physicsSource"]:gsub(".lua", "")
+                                    data = require(source).PhysicsData(scaleFactor)
+                                    bodyType = "dynamic"
+                                end
+                                if Map.map.tilesets[tileSetIndex].PhysicsData then
+                                    if tileProps["shapeID"] then
+                                        data = true
+                                        bodyType = "dynamic"					
+                                    end
+                                end					
+                                if tileProps["bodyType"] then
+                                    bodyType = tileProps["bodyType"]
+                                end
+                                if not data then
+                                    if tileProps["density"] then
+                                        density = tileProps["density"]
+                                    end
+                                    if tileProps["friction"] then
+                                        friction = tileProps["friction"]
+                                    end
+                                    if tileProps["bounce"] then
+                                        bounce = tileProps["bounce"]
+                                    end
+                                    if tileProps["radius"] then
+                                        radius = tileProps["radius"]
+                                    else
+                                        shape2 = PhysicsData.layer[layer].defaultShape
+                                    end
+                                    if tileProps["shape"] then
+                                        local shape = tileProps["shape"]
+                                        shape2 = {}
+                                        for key,value in pairs(shape) do
+                                            shape2[key] = value
+                                        end
+                                    end					
+                                    if tileProps["groupIndex"] or 
+                                        tileProps["categoryBits"] or 
+                                        tileProps["maskBits"] then
+                                        filter = {categoryBits = tileProps["categoryBits"],
+                                            maskBits = tileProps["maskBits"],
+                                            groupIndex = tileProps["groupIndex"]
+                                        }
+                                    end
+                                end					
+                                if bodyType ~= "static" then
+                                    local kind = "imageRect"
+                                    if rect then
+                                        if rect.sync then
+                                            Map.animatedTiles[rect] = nil
+                                        end
+                                        Sprites.tempObjects[#Sprites.tempObjects + 1] = rect
+                                        if Sprites.tempObjects[#Sprites.tempObjects].sync then
+                                            kind = "sprite"
+                                        end
+                                        Map.tileObjects[layer][locX][locY] = nil
+                                        Map.totalRects[layer] = Map.totalRects[layer] - 1
+                                    else
+                                        Sprites.tempObjects[#Sprites.tempObjects + 1] = display.newImageRect(Map.masterGroup[layer], 
+                                        Map.tileSets[tileSetIndex], frameIndex, tempScaleX, tempScaleY
+                                        )
+                                    end
+                                    local spriteName = ""..layer..locX..locY
+                                    local setup = {layer = layer, kind = kind, locX = locX, locY = locY, 
+                                        levelWidth = tempScaleX, levelHeight = tempScaleY, 
+                                        offsetX = offsetX, offsetY = offsetY * -1, name = spriteName
+                                    }
+                                    if Map.map.layers[layer].properties["noDraw"] or tileProps["offscreenPhysics"] then
+                                        setup.offscreenPhysics = true
+                                    end
+                                    if tileProps["layer"] then
+                                        setup.layer = tonumber(tileProps["layer"])
+                                    end
+                                    Sprites.addSprite(Sprites.tempObjects[#Sprites.tempObjects], setup)
+                                    Sprites.tempObjects[#Sprites.tempObjects].width = tempScaleX
+                                    Sprites.tempObjects[#Sprites.tempObjects].height = tempScaleY
+                                    if data ~= nil then
+                                        if data == true then 
+                                            physics.addBody( Sprites.tempObjects[#Sprites.tempObjects], bodyType, Map.map.tilesets[tileSetIndex].PhysicsData:get(tileProps["shapeID"]) )
+                                        else
+                                            physics.addBody( Sprites.tempObjects[#Sprites.tempObjects], bodyType, data:get(tileProps["shapeID"]) )
+                                        end
+                                    else
+                                        physics.addBody( Sprites.tempObjects[#Sprites.tempObjects], bodyType, {density = density, 
+                                            friction = friction, 
+                                            bounce = bounce,
+                                            radius = radius,
+                                            shape = shape2,
+                                            filter = filter
+                                        })
+                                    end
+                                    Map.map.layers[layer].world[locX][locY] = 0
+                                    if rect.properties and rect.properties.isAwake then
+                                        if rect.properties.isAwake == "true" then
+                                            Sprites.tempObjects[#Sprites.tempObjects].isAwake = true
+                                        else
+                                            Sprites.tempObjects[#Sprites.tempObjects].isAwake = false
+                                        end
+                                    else
+                                        Sprites.tempObjects[#Sprites.tempObjects].isAwake = PhysicsData.layer[layer].isAwake
+                                    end
+                                    if rect.properties and rect.properties.isBodyActive then
+                                        if rect.properties.isBodyActive == "true" then
+                                            Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = true
+                                        else
+                                            Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = false
+                                        end
+                                    else
+                                        Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = PhysicsData.layer[layer].isActive
+                                    end
+                                    if Sprites.tempObjects[#Sprites.tempObjects].sync then
+                                        Sprites.tempObjects[#Sprites.tempObjects]:setSequence("null")
+                                        Sprites.tempObjects[#Sprites.tempObjects]:play()
+                                    end
+                                    listenerCheck = Sprites.tempObjects[#Sprites.tempObjects]
+                                else
+                                    rect.width = tempScaleX
+                                    rect.height = tempScaleY
+                                    if data ~= nil then
+                                        if data == true then 
+                                            physics.addBody( rect, bodyType, Map.map.tilesets[tileSetIndex].PhysicsData:get(tileProps["shapeID"]) )
+                                        else
+                                            physics.addBody( rect, bodyType, data:get(tileProps["shapeID"]) )
+                                        end
+                                    else
+                                        physics.addBody( rect, bodyType, {density = density, 
+                                            friction = friction, 
+                                            bounce = bounce,
+                                            radius = radius,
+                                            shape = shape2,
+                                            filter = filter
+                                        })
+                                    end
+                                    rect.physics = true
+                                    if rect.properties and rect.properties.isAwake then
+                                        if rect.properties.isAwake == "true" then
+                                            rect.isAwake = true
+                                        else
+                                            rect.isAwake = false
+                                        end
+                                    else
+                                        rect.isAwake = PhysicsData.layer[layer].isAwake
+                                    end
+                                    if rect.properties and rect.properties.isBodyActive then
+                                        if rect.properties.isBodyActive == "true" then
+                                            rect.isBodyActive = true
+                                        else
+                                            rect.isBodyActive = false
+                                        end
+                                    else
+                                        rect.isBodyActive = PhysicsData.layer[layer].isActive
+                                    end
+                                end
+                                if tempTileProps then
+                                    tileProps = nil
+                                end
+                            end
+                        end
+                    end
+                    ----
+                end
+                
+                if listenerCheck then
+                    for key,value in pairs(propertyListeners) do
+                        if tileProps[key] then
+                            local event = { name = key, target = listenerCheck}
+                            Map.masterGroup:dispatchEvent( event )
+                        end
+                    end
+                end
+                -----------
+                
+                return isOwner
+            end
+        end	
+    end	
+end
+
+return Core
+end
+end
+
+do
+local _ENV = _ENV
 package.preload[ "src.Camera" ] = function( ... ) local arg = _G.arg;
 local Camera = {}
 
 local Map = require("src.Map")
+local Screen = require("src.Screen")
 
 -----------------------------------------------------------
 
@@ -2207,7 +6599,7 @@ Camera.screen = {}
 Camera.cullingMargin = {0, 0, 0, 0}
 Camera.touchScroll = { false, nil, nil, nil, nil, nil }
 Camera.pinchZoom = false
-
+Camera.enableLighting = false
 -----------------------------------------------------------
 
 Camera.enableTouchScroll = function()
@@ -2327,6 +6719,8 @@ Camera.setCameraFocus = function(object, offsetX, offsetY)
     end
 end
 
+-----------------------------------------------------------
+
 Camera.zoom = function(scale, time, easing)
     if not scale and not time then
         if Camera.deltaZoom then
@@ -2346,7 +6740,433 @@ end
 
 -----------------------------------------------------------
 
+Camera.getCamera = function(layer)
+    if Map.map.orientation == Map.Type.Isometric then
+        if layer then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
+            local isoPos = Map.isoUntransform2(cameraX, cameraY)
+            cameraX = isoPos[1]
+            cameraY = isoPos[2]
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+            return {levelPosX = cameraX, 
+                levelPosY = cameraY, 
+                locX = cameraLocX, 
+            locY = cameraLocY}
+        else
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+            local isoPos = Map.isoUntransform2(Camera.McameraX, Camera.McameraY)
+            Camera.McameraX = isoPos[1]
+            Camera.McameraY = isoPos[2]
+            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
+            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
+            return {levelPosX = Camera.McameraX, 
+                levelPosY = Camera.McameraY, 
+                locX = Camera.McameraLocX, 
+            locY = Camera.McameraLocY}
+        end
+    else
+        if layer then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+            return {levelPosX = cameraX, 
+                levelPosY = cameraY, 
+                locX = cameraLocX, 
+            locY = cameraLocY}
+        else
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
+            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
+            return {levelPosX = Camera.McameraX, 
+                levelPosY = Camera.McameraY, 
+                locX = Camera.McameraLocX, 
+            locY = Camera.McameraLocY}
+        end
+    end
+end
+
+
+-----------------------------------------------------------
+
+Camera.moveCameraTo = function(params)
+    local check = true
+    for i = 1, #Map.map.layers, 1 do
+        if i == params.layer or not params.layer then
+            if Camera.isCameraMoving[i] then
+                check = false
+            else
+                if params.disableParallax then
+                    Camera.parallaxToggle[i] = false
+                else
+                    params.disableParallax = false
+                end
+                Camera.cameraOnComplete[i] = false
+            end
+        end
+    end		
+    if check and not params.layer then
+        Camera.refMove = true
+        Camera.cameraOnComplete[1] = params.onComplete
+    end
+    for i = 1, #Map.map.layers, 1 do
+        if (i == params.layer or not params.layer) and check then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)	
+            
+            if not params.time or params.time < 1 then
+                params.time = 1
+            end
+            local time = math.ceil(params.time / Map.frameTime)
+            local levelPosX = params.levelPosX
+            local levelPosY = params.levelPosY
+            if params.sprite then
+                if params.sprite.levelPosX then
+                    levelPosX = params.sprite.levelPosX + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
+                    levelPosY = params.sprite.levelPosY + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
+                else
+                    levelPosX = params.sprite.x + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
+                    levelPosY = params.sprite.y + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
+                end
+            end
+            if params.locX then
+                levelPosX = params.locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
+            end
+            if params.locY then
+                levelPosY = params.locY * Map.map.tileheight - (Map.map.tileheight / 2)
+            end				
+            
+            if not levelPosX then
+                levelPosX = cameraX
+            end
+            if not levelPosY then
+                levelPosY = cameraY
+            end
+            
+            if not Camera.layerWrapX[i] then
+                endX = levelPosX
+                distanceX = endX - cameraX
+                Camera.deltaX[i] = {}
+                Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+            else
+                local tempPosX = levelPosX
+                if tempPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) then
+                    tempPosX = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
+                elseif tempPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
+                    tempPosX = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
+                end			
+                local tempPosX2 = tempPosX
+                if tempPosX > cameraX then
+                    tempPosX2 = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
+                elseif tempPosX < cameraX then
+                    tempPosX2 = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
+                end			
+                distanceXAcross = math.abs(cameraX - tempPosX)
+                distanceXWrap = math.abs(cameraX - tempPosX2)
+                if distanceXWrap < distanceXAcross then
+                    if tempPosX > cameraX then
+                        Map.masterGroup[i].x = (cameraX + Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
+                    elseif tempPosX < cameraX then
+                        Map.masterGroup[i].x = (cameraX - Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
+                    end
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                    endX = tempPosX
+                    distanceX = endX - cameraX
+                    Camera.deltaX[i] = {}
+                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+                else
+                    endX = levelPosX
+                    distanceX = endX - cameraX
+                    Camera.deltaX[i] = {}
+                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+                end
+            end				
+            if not Camera.layerWrapY[i] then
+                endY = levelPosY
+                distanceY = endY - cameraY
+                Camera.deltaY[i] = {}
+                Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+            else
+                local tempPosY = levelPosY
+                if tempPosY > Map.map.layers[i].height * Map.map.tileheight then
+                    tempPosY = tempPosY - Map.map.layers[i].height * Map.map.tileheight
+                elseif tempPosY < 1 then
+                    tempPosY = tempPosY + Map.map.layers[i].height * Map.map.tileheight
+                end			
+                local tempPosY2 = tempPosY
+                if tempPosY > cameraY then
+                    tempPosY2 = tempPosY - Map.map.layers[i].height * Map.map.tileheight
+                elseif tempPosY < cameraY then
+                    tempPosY2 = tempPosY + Map.map.layers[i].height * Map.map.tileheight
+                end					
+                distanceYAcross = math.abs(cameraY - tempPosY)
+                distanceYWrap = math.abs(cameraY - tempPosY2)
+                if distanceYWrap < distanceYAcross then
+                    if tempPosY > cameraY then
+                        Map.masterGroup[i].y = (cameraY + Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
+                    elseif tempPosY < cameraY then
+                        Map.masterGroup[i].y = (cameraY - Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
+                    end
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                    endY = tempPosY
+                    distanceY = endY - cameraY
+                    Camera.deltaY[i] = {}
+                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+                else
+                    endY = levelPosY
+                    distanceY = endY - cameraY
+                    Camera.deltaY[i] = {}
+                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+                end
+            end				
+            Camera.isCameraMoving[i] = true
+            if not Camera.refMove then
+                Camera.cameraOnComplete[i] = params.onComplete
+            end
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.removeCameraConstraints = function(layer)
+    if layer then
+        constrainLeft[layer] = nil
+        constrainTop[layer] = nil
+        constrainRight[layer] = nil
+        constrainBottom[layer] = nil
+        Map.masterGroup[layer].vars.constrainLayer = nil
+    else
+        for i = 1, #Map.map.layers, 1 do
+            constrainLeft[i] = nil
+            constrainTop[i] = nil
+            constrainRight[i] = nil
+            constrainBottom[i] = nil
+        end
+    end
+end
+
 return Camera
+end
+end
+
+do
+local _ENV = _ENV
+package.preload[ "src.DebugStats" ] = function( ... ) local arg = _G.arg;
+local DebugStats = {}
+
+local Camera = require("src.Camera")
+local Map = require("src.Map")
+
+-----------------------------------------------------------
+
+local prevTime = 0
+local dbTog = 0
+local dCount = 1
+local memory = "0"
+local mod
+local rectCount
+local debugX
+local debugY
+local debugLocX
+local debugLocY
+local debugVelX
+local debugVelY
+local debugAccX
+local debugAccY
+local debugLoading
+local debugMemory
+local debugFPS
+local debugText
+local frameRate
+local frameArray = {}
+local avgFrame = 1
+local lowFrame = 100
+
+DebugStats.debug = function(fps)
+    
+    if not fps then
+        fps = display.fps
+    end	
+    
+    if dbTog == 0 then
+        mod = display.fps / fps
+        local size = 22
+        local scale = 2
+        if display.viewableContentHeight < 500 then
+            size = 14
+            scale = 1
+        end
+        rectCount = display.newText("null", 50 * scale, 80 * scale, native.systemFont, size)
+        debugX = display.newText("null", 50 * scale, 20 * scale, native.systemFont, size)
+        debugY = display.newText("null", 50 * scale, 35 * scale, native.systemFont, size)
+        debugLocX = display.newText("null", 50 * scale, 50 * scale, native.systemFont, size)
+        debugLocY = display.newText("null", 50 * scale, 65 * scale, native.systemFont, size)
+        debugLoading = display.newText("null", display.viewableContentWidth / 2, 10, native.systemFont, size)
+        debugMemory = display.newText("null", 60 * scale, 95 * scale, native.systemFont, size)
+        debugFPS = display.newText("null", 60 * scale, 110 * scale, native.systemFont, size)
+        dbTog = 1		
+        rectCount:setFillColor(1, 1, 1)
+        debugX:setFillColor(1, 1, 1)
+        debugY:setFillColor(1, 1, 1)
+        debugLocX:setFillColor(1, 1, 1)
+        debugLocY:setFillColor(1, 1, 1)
+        debugLoading:setFillColor(1, 1, 1)
+        debugMemory:setFillColor(1, 1, 1)
+        debugFPS:setFillColor(1, 1, 1)
+    end		
+    
+    local layer = Map.refLayer
+    local sumRects = 0
+    
+    for i = 1, #Map.map.layers, 1 do
+        if Map.totalRects[i] then
+            sumRects = sumRects + Map.totalRects[i]
+        end
+    end
+    
+    if Map.map.orientation == Map.Type.Isometric then
+        local cameraX = string.format("%g", Camera.McameraX)
+        local cameraY = string.format("%g", Camera.McameraY)
+        debugX.text = "cameraX: "..cameraX
+        debugX:toFront()
+        debugY.text = "cameraY: "..cameraY
+        debugY:toFront()
+        debugLocX.text = "cameraLocX: "..Camera.McameraLocX	
+        debugLocY.text = "cameraLocY: "..Camera.McameraLocY
+    else
+        local cameraX = string.format("%g", Camera.McameraX)
+        local cameraY = string.format("%g", Camera.McameraY)
+        debugX.text = "cameraX: "..cameraX
+        debugX:toFront()
+        debugY.text = "cameraY: "..cameraY
+        debugY:toFront()
+        debugLocX.text = "cameraLocX: "..Camera.McameraLocX
+        debugLocY.text = "cameraLocY: "..Camera.McameraLocY
+    end
+    
+    debugLocX:toFront()
+    debugLocY:toFront()	
+    
+    rectCount.text = "Total Tiles: "..sumRects
+    rectCount:toFront()
+    dCount = dCount + 1
+    
+    if dCount >= 60 / mod then
+        dCount = 1
+        memory = string.format("%g", collectgarbage("count") / 1000)
+    end	
+    
+    debugMemory.text = "Memory: "..memory.." MB"
+    debugMemory:toFront()
+    
+    local curTime = system.getTimer()
+    local dt = curTime - prevTime
+    prevTime = curTime	
+    local fps = math.floor(1000/dt) * mod	
+    local lowDelay = 20 / mod
+    
+    if #frameArray < lowDelay then
+        frameArray[#frameArray + 1] = fps
+    else
+        local temp = 0
+        for i = 1, #frameArray, 1 do
+            temp = temp + frameArray[i]	
+        end
+        avgFrame = temp / lowDelay
+        frameArray = {}
+    end	
+    
+    debugFPS.text = "FPS: "..fps.."   AVG: "..avgFrame
+    debugFPS:toFront()
+    debugLoading.text = debugText
+    debugLoading:toFront()
+end
+
+-----------------------------------------------------------
+
+return DebugStats
+
+end
+end
+
+do
+local _ENV = _ENV
+package.preload[ "src.SaveMap" ] = function( ... ) local arg = _G.arg;
+local SaveMap = {}
+
+local json = require("json")
+local lfs = require("lfs")
+
+-----------------------------------------------------------
+
+SaveMap.saveMap = function(loadedMap, filePath, dir)
+    if not filePath then
+        if loadedMap then
+            filePath = loadedMap
+        else
+            filePath = source
+        end
+    end	
+    local directories = {}
+    local firstIndex = 1
+    for i = 1, string.len(filePath), 1 do
+        if string.sub(filePath, i, i) == "/" then
+            directories[#directories + 1] = string.sub(filePath, firstIndex, i - 1)
+            firstIndex = i + 1
+        end
+    end	
+    local fileName = string.sub(filePath, firstIndex, string.len(filePath))	
+    local dirPath
+    if dir == "Documents" or not dir then
+        dirPath = system.pathForFile("", system.DocumentsDirectory)
+    elseif dir == "Temporary" then
+        dirPath = system.pathForFile("", system.TemporaryDirectory)
+    elseif dir == "Resource" then
+        dirPath = system.pathForFile("", system.ResourceDirectory)
+    end	
+    if #directories > 0 then
+        
+        for i = 1, #directories, 1 do
+            lfs.chdir(dirPath)
+            local exists = false
+            for file in lfs.dir(dirPath) do
+                if file == directories[i] then
+                    exists = true
+                    break
+                end
+            end
+            if not exists then
+                lfs.mkdir(directories[i])
+            end
+            dirPath = lfs.currentdir() .. "/"..directories[i]
+        end		
+    end
+    local finalPath = dirPath.."/"..fileName	
+    
+    local jsonData
+    if not loadedMap then
+        jsonData = json.encode(Map.map)
+    else
+        jsonData = json.encode(Map.mapStorage[loadedMap])		
+    end	
+    local saveData = io.open(finalPath, "w")	
+    saveData:write(jsonData)
+    io.close(saveData)
+    
+end
+
+-----------------------------------------------------------
+
+return SaveMap
 end
 end
 
@@ -3801,6 +8621,457 @@ return PhysicsData
 end
 end
 
+do
+local _ENV = _ENV
+package.preload[ "src.Sprites" ] = function( ... ) local arg = _G.arg;
+local Sprites = {}
+
+local Camera = require("src.Camera")
+local Map = require("src.Map")
+
+Sprites.sprites = {}
+
+Sprites.movingSprites = {}
+
+Sprites.tempObjects = {}
+
+Sprites.holdSprite = nil
+
+Sprites.enableSpriteSorting = false
+
+-----------------------------------------------------------
+
+Sprites.removeSprite = function(sprite, destroyObject)
+    if sprite.light then
+        sprite.removeLight()
+    end
+    if Camera.cameraFocus == sprite then
+        Camera.cameraFocus = nil
+    end
+    if Light.pointLightSource == sprite then
+        Light.pointLightSource = nil
+    end
+    if Sprites.movingSprites[sprite] then
+        Sprites.movingSprites[sprite] = nil
+    end
+    if sprite.name then
+        if Sprites.sprites[sprite.name] then
+            Sprites.sprites[sprite.name] = nil
+        end
+    end
+    if destroyObject == nil or destroyObject == true then
+        sprite:removeSelf()
+        sprite = nil
+    else
+        local stage = display.getCurrentStage()
+        stage:insert(sprite)
+    end
+end
+
+-----------------------------------------------------------
+
+Sprites.addSprite = function(sprite, setup)
+    local layer
+    if setup.level then
+        layer = Map.spriteLayers[setup.level]
+        if not layer then
+            --print("Warning(addSprite): No Sprite Layer at level "..setup.level..". Defaulting to "..Map.refLayer..".")
+            for i = 1, #Map.map.layers, 1 do
+                if Map.map.layers[i].properties.level == setup.level then
+                    layer = i
+                    break
+                end
+            end
+            if not layer then
+                layer = Map.refLayer
+            end
+        end
+    elseif setup.layer then
+        layer = setup.layer
+        if layer > #Map.map.layers then
+            print("Warning(addSprite): Layer out of bounds. Defaulting to "..Map.refLayer..".")
+            layer = Map.refLayer
+        end
+    else
+        if sprite.parent.vars then
+            layer = sprite.parent.vars.layer
+        else
+            --print("Warning(addSprite): You forgot to specify a Layer or level. Defaulting to "..Map.refLayer..".")
+            layer = Map.refLayer
+        end
+    end
+    
+    if setup.color then
+        sprite.color = setup.color
+    end
+    if sprite.lighting == nil then
+        if setup.lighting ~= nil then
+            sprite.lighting = setup.lighting
+        else
+            sprite.lighting = true
+        end
+    end
+    
+    if not setup.kind or setup.kind == "sprite" then
+        sprite.objType = 1
+        if sprite.lighting then
+            if not sprite.color then
+                sprite.color = {1, 1, 1}
+            end
+            local mL = Map.map.layers[setup.layer]
+            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
+        end
+    elseif setup.kind == "imageRect" then
+        sprite.objType = 2
+        if sprite.lighting then
+            if not sprite.color then
+                sprite.color = {1, 1, 1}
+            end
+            local mL = Map.map.layers[setup.layer]
+            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
+        end
+    elseif setup.kind == "group" then
+        sprite.objType = 3
+        if sprite.lighting then
+            local mL = Map.map.layers[setup.layer]
+            for i = 1, sprite.numChildren, 1 do
+                if sprite[i]._class then
+                    if sprite.color and not sprite[i].color then
+                        sprite[i].color = sprite.color
+                    end
+                    if not sprite[i].color then
+                        sprite[i].color = {1, 1, 1}
+                    end
+                    sprite[i]:setFillColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
+                end
+            end
+        end
+    elseif setup.kind == "vector" then
+        sprite.objType = 4
+        if sprite.lighting then
+            local mL = Map.map.layers[setup.layer]
+            for i = 1, sprite.numChildren, 1 do
+                if sprite[i]._class then
+                    if sprite.color and not sprite[i].color then
+                        sprite[i].color = sprite.color
+                    end
+                    if not sprite[i].color then
+                        sprite[i].color = {1, 1, 1}
+                    end
+                    sprite[i]:setStrokeColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
+                end
+            end
+        end
+    end
+    
+    if setup.followHeightMap then
+        sprite.followHeightMap = setup.followHeightMap
+    end
+    if setup.heightMap then
+        sprite.heightMap = setup.heightMap
+    end
+    if setup.offscreenPhysics then
+        sprite.offscreenPhysics = true
+    end
+    if Camera.enableLighting then
+        sprite.litBy = {}
+        sprite.prevLitBy = {}
+    end
+    local spriteName = sprite.name or setup.name
+    if not spriteName or spriteName == "" then
+        spriteName = ""..sprite.x.."_"..sprite.y.."_"..layer
+    end
+    if Sprites.sprites[spriteName] and Sprites.sprites[spriteName] ~= sprite then
+        local tempName = spriteName
+        local counter = 1
+        while Sprites.sprites[tempName] do
+            tempName = ""..spriteName..counter
+            counter = counter + 1
+        end
+        spriteName = tempName
+    end
+    sprite.name = spriteName
+    if not Sprites.sprites[spriteName] then
+        Sprites.sprites[spriteName] = sprite
+    end
+    sprite.park = false
+    if setup.park == true then
+        sprite.park = true
+    end
+    
+    if setup.sortSprite ~= nil then
+        sprite.sortSprite = setup.sortSprite
+    else
+        sprite.sortSprite = false
+    end
+    if setup.sortSpriteOnce ~= nil then
+        sprite.sortSpriteOnce = setup.sortSpriteOnce
+    end
+    if not sprite.constrainToMap then
+        sprite.constrainToMap = {true, true, true, true}
+    end
+    if setup.constrainToMap ~= nil then
+        sprite.constrainToMap = setup.constrainToMap
+    end
+    sprite.locX = nil
+    sprite.locY = nil
+    sprite.levelPosX = nil
+    sprite.levelPosY = nil
+    if setup.layer then
+        sprite.layer = setup.layer
+        sprite.level = Map.map.layers[setup.layer].properties.level
+    end
+    sprite.deltaX = {}
+    sprite.deltaY = {}
+    sprite.velX = nil
+    sprite.velY = nil
+    sprite.isMoving = false
+    if Map.map.orientation == Map.Type.Isometric then
+        if setup.levelWidth then
+            sprite.levelWidth = setup.levelWidth
+            if sprite.objType ~= 3 then
+                sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
+            end
+        else
+            sprite.levelWidth = sprite.width
+        end
+        if setup.levelHeight then
+            sprite.levelHeight = setup.levelHeight
+            if sprite.objType ~= 3 then
+                sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
+            end
+        else
+            sprite.levelHeight = sprite.height
+        end
+        if setup.levelPosX then
+            sprite.levelPosX = setup.levelPosX			
+            sprite.locX = M.levelToLocX(sprite.x)			
+        elseif setup.locX then
+            sprite.levelPosX = Map.locToLevelPosX(setup.locX)			
+            sprite.locX = setup.locX			
+        else
+            sprite.levelPosX = sprite.x			
+            sprite.locX = M.levelToLocX(sprite.x)
+        end
+        if setup.levelPosY then
+            sprite.levelPosY = setup.levelPosY
+            sprite.locY = M.levelToLocY(sprite.y)
+        elseif setup.locY then
+            sprite.levelPosY = Map.locToLevelPosX(setup.locY)
+            sprite.locY = setup.locY
+        else
+            sprite.levelPosY = sprite.y
+            sprite.locY = M.levelToLocY(sprite.y)
+        end
+        local isoPos = Map.isoTransform2(sprite.levelPosX, sprite.levelPosY)
+        sprite.x = isoPos[1]
+        sprite.y = isoPos[2]
+    else
+        if setup.levelWidth then
+            sprite.levelWidth = setup.levelWidth
+            sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
+        else
+            sprite.levelWidth = sprite.width
+        end
+        if setup.levelHeight then
+            sprite.levelHeight = setup.levelHeight
+            sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
+        else
+            sprite.levelHeight = sprite.height
+        end
+        if setup.levelPosX then
+            sprite.x = setup.levelPosX			
+            sprite.locX = M.levelToLocX(sprite.x)			
+        elseif setup.locX then
+            sprite.x = Map.locToLevelPosX(setup.locX)			
+            sprite.locX = setup.locX			
+        else
+            sprite.locX = M.levelToLocX(sprite.x)	
+        end
+        if setup.levelPosY then
+            sprite.y = setup.levelPosY
+            sprite.locY = M.levelToLocY(sprite.y)
+        elseif setup.locY then
+            sprite.y = Map.locToLevelPosX(setup.locY)
+            sprite.locY = setup.locY
+        else
+            sprite.locY = M.levelToLocY(sprite.y)
+        end
+        sprite.levelPosX = sprite.x
+        sprite.levelPosY = sprite.y
+    end
+    sprite.lightingListeners = {}
+    sprite.addLightingListener = function(self, name, listener)
+        sprite.lightingListeners[name] = true
+        sprite:addEventListener(name, listener)
+    end
+    sprite.addLight = function(light)
+        if M.enableLighting then
+            sprite.light = light
+            sprite.light.created = true
+            if not sprite.light.id then
+                sprite.light.id = Light.lightIDs
+            end
+            Light.lightIDs = Light.lightIDs + 1
+            
+            if not sprite.light.maxRange then
+                local maxRange = sprite.light.range[1]
+                for l = 1, 3, 1 do
+                    if sprite.light.range[l] > maxRange then
+                        maxRange = sprite.light.range[l]
+                    end
+                end
+                sprite.light.maxRange = maxRange
+            end
+            
+            if not sprite.light.levelPosX then
+                sprite.light.levelPosX = sprite.levelPosX
+                sprite.light.levelPosY = sprite.levelPosY
+            end
+            
+            if not sprite.light.alternatorCounter then
+                sprite.light.alternatorCounter = 1
+            end
+            
+            if sprite.light.rays then
+                sprite.light.areaIndex = 1
+            end
+            
+            if sprite.light.layerRelative then
+                sprite.light.layer = sprite.layer + sprite.light.layerRelative
+                if sprite.light.layer < 1 then
+                    sprite.light.layer = 1
+                end
+                if sprite.light.layer > #Map.map.layers then
+                    sprite.light.layer = #Map.map.layers
+                end
+            end				
+            
+            if not sprite.light.layer then
+                sprite.light.layer = sprite.layer
+            end
+            sprite.light.level = sprite.level
+            sprite.light.dynamic = true
+            sprite.light.area = {}
+            sprite.light.sprite = sprite
+            Map.map.lights[sprite.light.id] = sprite.light
+        end
+    end
+    sprite.removeLight = function()
+        if sprite.light.rays then
+            sprite.light.areaIndex = 1
+        end
+        
+        local length = #sprite.light.area
+        for i = length, 1, -1 do
+            local locX = sprite.light.area[i][1]
+            local locY = sprite.light.area[i][2]
+            sprite.light.area[i] = nil
+            
+            if Camera.worldWrapX then
+                if locX < 1 - Map.map.locOffsetX then
+                    locX = locX + Map.map.width
+                end
+                if locX > Map.map.width - Map.map.locOffsetX then
+                    locX = locX - Map.map.width
+                end
+            end
+            if Camera.worldWrapY then
+                if locY < 1 - Map.map.locOffsetY then
+                    locY = locY + Map.map.height
+                end
+                if locY > Map.map.height - Map.map.locOffsetY then
+                    locY = locY - Map.map.height
+                end
+            end
+            if sprite.light.layer then
+                if Map.map.layers[sprite.light.layer].lighting[locX] and Map.map.layers[sprite.light.layer].lighting[locX][locY] then
+                    Map.map.layers[sprite.light.layer].lighting[locX][locY][sprite.light.id] = nil
+                    Map.map.lightToggle[locX][locY] = tonumber(system.getTimer())
+                end	
+            end
+        end
+        Map.map.lights[sprite.light.id] = nil
+        sprite.light = nil
+    end		
+    if Camera.layerWrapX[i] and (sprite.wrapX == nil or sprite.wrapX == true) then
+        while sprite.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) do
+            sprite.levelPosX = sprite.levelPosX + Map.map.layers[i].width * Map.map.tilewidth
+        end
+        while sprite.levelPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) do
+            sprite.levelPosX = sprite.levelPosX - Map.map.layers[i].width * Map.map.tilewidth
+        end		
+        if cameraX - sprite.x < Map.map.layers[i].width * Map.map.tilewidth / -2 then
+            --wrap around to the left
+            sprite.x = sprite.x - Map.map.layers[i].width * Map.map.tilewidth
+        elseif cameraX - sprite.x > Map.map.layers[i].width * Map.map.tilewidth / 2 then
+            --wrap around to the right
+            sprite.x = sprite.x + Map.map.layers[i].width * Map.map.tilewidth
+        end
+    end		
+    if Camera.layerWrapY[i] and (sprite.wrapY == nil or sprite.wrapY == true) then
+        while sprite.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
+            sprite.levelPosY = sprite.levelPosY + Map.map.layers[i].height * Map.map.tileheight
+        end
+        while sprite.levelPosY > Map.map.layers[i].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) do
+            sprite.levelPosY = sprite.levelPosY - Map.map.layers[i].height * Map.map.tileheight
+        end		
+        if cameraY - sprite.y < Map.map.layers[i].height * Map.map.tileheight / -2 then
+            --wrap around to the left
+            sprite.y = sprite.y - Map.map.layers[i].height * Map.map.tileheight
+        elseif cameraY - sprite.y > Map.map.layers[i].height * Map.map.tileheight / 2 then
+            --wrap around to the right
+            sprite.y = sprite.y + Map.map.layers[i].height * Map.map.tileheight
+        end
+    end		
+    sprite.locX = math.ceil(sprite.levelPosX / Map.map.tilewidth)
+    sprite.locY = math.ceil(sprite.levelPosY / Map.map.tileheight)
+    if setup.offsetX then
+        sprite.offsetX = setup.offsetX
+        --sprite.anchorX = ((sprite.width / 2) - sprite.offsetX) / sprite.width
+        sprite.anchorX = (((sprite.levelWidth or sprite.width) / 2) - sprite.offsetX) / (sprite.levelWidth or sprite.width)
+    else
+        sprite.offsetX = 0
+    end
+    if setup.offsetY then
+        sprite.offsetY = setup.offsetY
+        --sprite.anchorY = ((sprite.height / 2) - sprite.offsetY) / sprite.height
+        sprite.anchorY = (((sprite.levelHeight or sprite.height) / 2) - sprite.offsetY) / (sprite.levelHeight or sprite.height)
+    else
+        sprite.offsetY = 0
+    end
+    if Map.map.orientation == Map.Type.Isometric then
+        if Map.isoSort == 1 then
+            Map.masterGroup[setup.layer][sprite.locX + sprite.locY - 1]:insert(sprite)
+            sprite.row = sprite.locX + sprite.locY - 1
+        else
+            Map.masterGroup[(sprite.locX + (sprite.level - 1)) + (sprite.locY + (sprite.level - 1)) - 1].layers[setup.layer]:insert(sprite)
+        end
+    else
+        Map.masterGroup[layer]:insert(sprite)
+    end	
+    
+    if setup.properties then
+        if not sprite.properties then
+            sprite.properties = {}
+        end
+        for key,value in pairs(setup.properties) do
+            sprite.properties[key] = value
+        end
+    end
+    
+    if setup.managePhysicsStates ~= nil then
+        sprite.managePhysicsStates = setup.managePhysicsStates
+    end
+    
+    return sprite		
+end
+
+return Sprites
+
+end
+end
+
 end
 
 --mte 0v990-1
@@ -3814,6 +9085,7 @@ M.physics = require("physics")
 
 -----------------------------------------------------------
 
+local Core = require("src.Core")
 local Camera = require("src.Camera")
 local DebugStats = require("src.DebugStats")
 local Light = require("src.Light")
@@ -3824,6 +9096,7 @@ local SaveMap = require("src.SaveMap")
 local Sprites = require("src.Sprites")
 local Screen = require("src.Screen")
 local Xml = require("src.Xml")
+
 
 -----------------------------------------------------------
 
@@ -4028,19 +9301,30 @@ end
 -----------------------------------------------------------
 
 -------------------------
+-- Core
+-------------------------
+
+M.update = Core.update
+M.updateTile = Core.updateTile
+
+-------------------------
 -- Camera
 -------------------------
 
 M.cameraX = Camera.McameraX
 M.cameraY = Camera.McameraY
 
-M.enableTouchScroll = Camera.enableTouchScroll
-M.enablePinchZoom = Camera.enablePinchZoom
-M.disableTouchScroll = Camera.disableTouchScroll
+M.enableLighting = Camera.enableLighting
 M.disablePinchZoom = Camera.disablePinchZoom
+M.disableTouchScroll = Camera.disableTouchScroll
+M.enablePinchZoom = Camera.enablePinchZoom
+M.enableTouchScroll = Camera.enableTouchScroll
 M.setCameraFocus = Camera.setCameraFocus
 M.toggleWorldWrapX = Camera.toggleWorldWrapX
 M.toggleWorldWrapY = Camera.toggleWorldWrapY
+M.getCamera = Camera.getCamera
+M.moveCameraTo = Camera.moveCameraTo
+M.removeCameraConstraints = Camera.removeCameraConstraints
 M.zoom = Camera.zoom
 
 -------------------------
@@ -4057,13 +9341,14 @@ M.disableHeightMaps = Map.disableHeightMaps
 M.enableHeightMaps = Map.enableHeightMaps
 M.enableTileFlipAndRotation = Map.enableTileFlipAndRotation
 M.getLayerObj = Map.getLayerObj
+M.getLayerProperties = Map.getLayerProperties
 M.getLayers = Map.getLayers
 M.getLevel = Map.getLevel
 M.getLoadedMaps = Map.getLoadedMaps
 M.getMap = Map.getMap
 M.getMapObj = Map.getMapObj
 M.getMapProperties = Map.getMapProperties
-M.getLayerProperties = Map.getLayerProperties
+M.getObjectLayer = Map.getObjectLayer
 M.getSpriteLayer = Map.getSpriteLayer
 M.getTileAt = Map.getTileAt
 M.getTileObj = Map.getTileObj
@@ -4081,6 +9366,7 @@ M.unloadMap = Map.unloadMap
 M.debug = DebugStats.debug
 M.perlinNoise = PerlinNoise.perlinNoise
 M.saveMap = SaveMap.saveMap
+M.enableSpriteSorting = Sprites.enableSpriteSorting
 
 -------------------------
 -- PhysicsData
@@ -4549,434 +9835,6 @@ M.convert = function(operation, arg1, arg2, layer)
     elseif switch == 2 then
         return value.y
     end
-end
-
------------------------------------------------------------
-
-M.removeSprite = function(sprite, destroyObject)
-    if sprite.light then
-        sprite.removeLight()
-    end
-    if Camera.cameraFocus == sprite then
-        Camera.cameraFocus = nil
-    end
-    if Light.pointLightSource == sprite then
-        Light.pointLightSource = nil
-    end
-    if Sprites.movingSprites[sprite] then
-        Sprites.movingSprites[sprite] = nil
-    end
-    if sprite.name then
-        if Sprites.sprites[sprite.name] then
-            Sprites.sprites[sprite.name] = nil
-        end
-    end
-    if destroyObject == nil or destroyObject == true then
-        sprite:removeSelf()
-        sprite = nil
-    else
-        local stage = display.getCurrentStage()
-        stage:insert(sprite)
-    end
-end
-
------------------------------------------------------------
-
-M.addSprite = function(sprite, setup)
-    local layer
-    if setup.level then
-        layer = Map.spriteLayers[setup.level]
-        if not layer then
-            --print("Warning(addSprite): No Sprite Layer at level "..setup.level..". Defaulting to "..Map.refLayer..".")
-            for i = 1, #Map.map.layers, 1 do
-                if Map.map.layers[i].properties.level == setup.level then
-                    layer = i
-                    break
-                end
-            end
-            if not layer then
-                layer = Map.refLayer
-            end
-        end
-    elseif setup.layer then
-        layer = setup.layer
-        if layer > #Map.map.layers then
-            print("Warning(addSprite): Layer out of bounds. Defaulting to "..Map.refLayer..".")
-            layer = Map.refLayer
-        end
-    else
-        if sprite.parent.vars then
-            layer = sprite.parent.vars.layer
-        else
-            --print("Warning(addSprite): You forgot to specify a Layer or level. Defaulting to "..Map.refLayer..".")
-            layer = Map.refLayer
-        end
-    end
-    
-    if setup.color then
-        sprite.color = setup.color
-    end
-    if sprite.lighting == nil then
-        if setup.lighting ~= nil then
-            sprite.lighting = setup.lighting
-        else
-            sprite.lighting = true
-        end
-    end
-    
-    if not setup.kind or setup.kind == "sprite" then
-        sprite.objType = 1
-        if sprite.lighting then
-            if not sprite.color then
-                sprite.color = {1, 1, 1}
-            end
-            local mL = Map.map.layers[setup.layer]
-            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
-        end
-    elseif setup.kind == "imageRect" then
-        sprite.objType = 2
-        if sprite.lighting then
-            if not sprite.color then
-                sprite.color = {1, 1, 1}
-            end
-            local mL = Map.map.layers[setup.layer]
-            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
-        end
-    elseif setup.kind == "group" then
-        sprite.objType = 3
-        if sprite.lighting then
-            local mL = Map.map.layers[setup.layer]
-            for i = 1, sprite.numChildren, 1 do
-                if sprite[i]._class then
-                    if sprite.color and not sprite[i].color then
-                        sprite[i].color = sprite.color
-                    end
-                    if not sprite[i].color then
-                        sprite[i].color = {1, 1, 1}
-                    end
-                    sprite[i]:setFillColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
-                end
-            end
-        end
-    elseif setup.kind == "vector" then
-        sprite.objType = 4
-        if sprite.lighting then
-            local mL = Map.map.layers[setup.layer]
-            for i = 1, sprite.numChildren, 1 do
-                if sprite[i]._class then
-                    if sprite.color and not sprite[i].color then
-                        sprite[i].color = sprite.color
-                    end
-                    if not sprite[i].color then
-                        sprite[i].color = {1, 1, 1}
-                    end
-                    sprite[i]:setStrokeColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
-                end
-            end
-        end
-    end
-    
-    if setup.followHeightMap then
-        sprite.followHeightMap = setup.followHeightMap
-    end
-    if setup.heightMap then
-        sprite.heightMap = setup.heightMap
-    end
-    if setup.offscreenPhysics then
-        sprite.offscreenPhysics = true
-    end
-    if M.enableLighting then
-        sprite.litBy = {}
-        sprite.prevLitBy = {}
-    end
-    local spriteName = sprite.name or setup.name
-    if not spriteName or spriteName == "" then
-        spriteName = ""..sprite.x.."_"..sprite.y.."_"..layer
-    end
-    if Sprites.sprites[spriteName] and Sprites.sprites[spriteName] ~= sprite then
-        local tempName = spriteName
-        local counter = 1
-        while Sprites.sprites[tempName] do
-            tempName = ""..spriteName..counter
-            counter = counter + 1
-        end
-        spriteName = tempName
-    end
-    sprite.name = spriteName
-    if not Sprites.sprites[spriteName] then
-        Sprites.sprites[spriteName] = sprite
-    end
-    sprite.park = false
-    if setup.park == true then
-        sprite.park = true
-    end
-    
-    if setup.sortSprite ~= nil then
-        sprite.sortSprite = setup.sortSprite
-    else
-        sprite.sortSprite = false
-    end
-    if setup.sortSpriteOnce ~= nil then
-        sprite.sortSpriteOnce = setup.sortSpriteOnce
-    end
-    if not sprite.constrainToMap then
-        sprite.constrainToMap = {true, true, true, true}
-    end
-    if setup.constrainToMap ~= nil then
-        sprite.constrainToMap = setup.constrainToMap
-    end
-    sprite.locX = nil
-    sprite.locY = nil
-    sprite.levelPosX = nil
-    sprite.levelPosY = nil
-    if setup.layer then
-        sprite.layer = setup.layer
-        sprite.level = Map.map.layers[setup.layer].properties.level
-    end
-    sprite.deltaX = {}
-    sprite.deltaY = {}
-    sprite.velX = nil
-    sprite.velY = nil
-    sprite.isMoving = false
-    if Map.map.orientation == Map.Type.Isometric then
-        if setup.levelWidth then
-            sprite.levelWidth = setup.levelWidth
-            if sprite.objType ~= 3 then
-                sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
-            end
-        else
-            sprite.levelWidth = sprite.width
-        end
-        if setup.levelHeight then
-            sprite.levelHeight = setup.levelHeight
-            if sprite.objType ~= 3 then
-                sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
-            end
-        else
-            sprite.levelHeight = sprite.height
-        end
-        if setup.levelPosX then
-            sprite.levelPosX = setup.levelPosX			
-            sprite.locX = M.levelToLocX(sprite.x)			
-        elseif setup.locX then
-            sprite.levelPosX = Map.locToLevelPosX(setup.locX)			
-            sprite.locX = setup.locX			
-        else
-            sprite.levelPosX = sprite.x			
-            sprite.locX = M.levelToLocX(sprite.x)
-        end
-        if setup.levelPosY then
-            sprite.levelPosY = setup.levelPosY
-            sprite.locY = M.levelToLocY(sprite.y)
-        elseif setup.locY then
-            sprite.levelPosY = Map.locToLevelPosX(setup.locY)
-            sprite.locY = setup.locY
-        else
-            sprite.levelPosY = sprite.y
-            sprite.locY = M.levelToLocY(sprite.y)
-        end
-        local isoPos = Map.isoTransform2(sprite.levelPosX, sprite.levelPosY)
-        sprite.x = isoPos[1]
-        sprite.y = isoPos[2]
-    else
-        if setup.levelWidth then
-            sprite.levelWidth = setup.levelWidth
-            sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
-        else
-            sprite.levelWidth = sprite.width
-        end
-        if setup.levelHeight then
-            sprite.levelHeight = setup.levelHeight
-            sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
-        else
-            sprite.levelHeight = sprite.height
-        end
-        if setup.levelPosX then
-            sprite.x = setup.levelPosX			
-            sprite.locX = M.levelToLocX(sprite.x)			
-        elseif setup.locX then
-            sprite.x = Map.locToLevelPosX(setup.locX)			
-            sprite.locX = setup.locX			
-        else
-            sprite.locX = M.levelToLocX(sprite.x)	
-        end
-        if setup.levelPosY then
-            sprite.y = setup.levelPosY
-            sprite.locY = M.levelToLocY(sprite.y)
-        elseif setup.locY then
-            sprite.y = Map.locToLevelPosX(setup.locY)
-            sprite.locY = setup.locY
-        else
-            sprite.locY = M.levelToLocY(sprite.y)
-        end
-        sprite.levelPosX = sprite.x
-        sprite.levelPosY = sprite.y
-    end
-    sprite.lightingListeners = {}
-    sprite.addLightingListener = function(self, name, listener)
-        sprite.lightingListeners[name] = true
-        sprite:addEventListener(name, listener)
-    end
-    sprite.addLight = function(light)
-        if M.enableLighting then
-            sprite.light = light
-            sprite.light.created = true
-            if not sprite.light.id then
-                sprite.light.id = Light.lightIDs
-            end
-            Light.lightIDs = Light.lightIDs + 1
-            
-            if not sprite.light.maxRange then
-                local maxRange = sprite.light.range[1]
-                for l = 1, 3, 1 do
-                    if sprite.light.range[l] > maxRange then
-                        maxRange = sprite.light.range[l]
-                    end
-                end
-                sprite.light.maxRange = maxRange
-            end
-            
-            if not sprite.light.levelPosX then
-                sprite.light.levelPosX = sprite.levelPosX
-                sprite.light.levelPosY = sprite.levelPosY
-            end
-            
-            if not sprite.light.alternatorCounter then
-                sprite.light.alternatorCounter = 1
-            end
-            
-            if sprite.light.rays then
-                sprite.light.areaIndex = 1
-            end
-            
-            if sprite.light.layerRelative then
-                sprite.light.layer = sprite.layer + sprite.light.layerRelative
-                if sprite.light.layer < 1 then
-                    sprite.light.layer = 1
-                end
-                if sprite.light.layer > #Map.map.layers then
-                    sprite.light.layer = #Map.map.layers
-                end
-            end				
-            
-            if not sprite.light.layer then
-                sprite.light.layer = sprite.layer
-            end
-            sprite.light.level = sprite.level
-            sprite.light.dynamic = true
-            sprite.light.area = {}
-            sprite.light.sprite = sprite
-            Map.map.lights[sprite.light.id] = sprite.light
-        end
-    end
-    sprite.removeLight = function()
-        if sprite.light.rays then
-            sprite.light.areaIndex = 1
-        end
-        
-        local length = #sprite.light.area
-        for i = length, 1, -1 do
-            local locX = sprite.light.area[i][1]
-            local locY = sprite.light.area[i][2]
-            sprite.light.area[i] = nil
-            
-            if Camera.worldWrapX then
-                if locX < 1 - Map.map.locOffsetX then
-                    locX = locX + Map.map.width
-                end
-                if locX > Map.map.width - Map.map.locOffsetX then
-                    locX = locX - Map.map.width
-                end
-            end
-            if Camera.worldWrapY then
-                if locY < 1 - Map.map.locOffsetY then
-                    locY = locY + Map.map.height
-                end
-                if locY > Map.map.height - Map.map.locOffsetY then
-                    locY = locY - Map.map.height
-                end
-            end
-            if sprite.light.layer then
-                if Map.map.layers[sprite.light.layer].lighting[locX] and Map.map.layers[sprite.light.layer].lighting[locX][locY] then
-                    Map.map.layers[sprite.light.layer].lighting[locX][locY][sprite.light.id] = nil
-                    Map.map.lightToggle[locX][locY] = tonumber(system.getTimer())
-                end	
-            end
-        end
-        Map.map.lights[sprite.light.id] = nil
-        sprite.light = nil
-    end		
-    if Camera.layerWrapX[i] and (sprite.wrapX == nil or sprite.wrapX == true) then
-        while sprite.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) do
-            sprite.levelPosX = sprite.levelPosX + Map.map.layers[i].width * Map.map.tilewidth
-        end
-        while sprite.levelPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) do
-            sprite.levelPosX = sprite.levelPosX - Map.map.layers[i].width * Map.map.tilewidth
-        end		
-        if cameraX - sprite.x < Map.map.layers[i].width * Map.map.tilewidth / -2 then
-            --wrap around to the left
-            sprite.x = sprite.x - Map.map.layers[i].width * Map.map.tilewidth
-        elseif cameraX - sprite.x > Map.map.layers[i].width * Map.map.tilewidth / 2 then
-            --wrap around to the right
-            sprite.x = sprite.x + Map.map.layers[i].width * Map.map.tilewidth
-        end
-    end		
-    if Camera.layerWrapY[i] and (sprite.wrapY == nil or sprite.wrapY == true) then
-        while sprite.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
-            sprite.levelPosY = sprite.levelPosY + Map.map.layers[i].height * Map.map.tileheight
-        end
-        while sprite.levelPosY > Map.map.layers[i].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) do
-            sprite.levelPosY = sprite.levelPosY - Map.map.layers[i].height * Map.map.tileheight
-        end		
-        if cameraY - sprite.y < Map.map.layers[i].height * Map.map.tileheight / -2 then
-            --wrap around to the left
-            sprite.y = sprite.y - Map.map.layers[i].height * Map.map.tileheight
-        elseif cameraY - sprite.y > Map.map.layers[i].height * Map.map.tileheight / 2 then
-            --wrap around to the right
-            sprite.y = sprite.y + Map.map.layers[i].height * Map.map.tileheight
-        end
-    end		
-    sprite.locX = math.ceil(sprite.levelPosX / Map.map.tilewidth)
-    sprite.locY = math.ceil(sprite.levelPosY / Map.map.tileheight)
-    if setup.offsetX then
-        sprite.offsetX = setup.offsetX
-        --sprite.anchorX = ((sprite.width / 2) - sprite.offsetX) / sprite.width
-        sprite.anchorX = (((sprite.levelWidth or sprite.width) / 2) - sprite.offsetX) / (sprite.levelWidth or sprite.width)
-    else
-        sprite.offsetX = 0
-    end
-    if setup.offsetY then
-        sprite.offsetY = setup.offsetY
-        --sprite.anchorY = ((sprite.height / 2) - sprite.offsetY) / sprite.height
-        sprite.anchorY = (((sprite.levelHeight or sprite.height) / 2) - sprite.offsetY) / (sprite.levelHeight or sprite.height)
-    else
-        sprite.offsetY = 0
-    end
-    if Map.map.orientation == Map.Type.Isometric then
-        if Map.isoSort == 1 then
-            Map.masterGroup[setup.layer][sprite.locX + sprite.locY - 1]:insert(sprite)
-            sprite.row = sprite.locX + sprite.locY - 1
-        else
-            Map.masterGroup[(sprite.locX + (sprite.level - 1)) + (sprite.locY + (sprite.level - 1)) - 1].layers[setup.layer]:insert(sprite)
-        end
-    else
-        Map.masterGroup[layer]:insert(sprite)
-    end	
-    
-    if setup.properties then
-        if not sprite.properties then
-            sprite.properties = {}
-        end
-        for key,value in pairs(setup.properties) do
-            sprite.properties[key] = value
-        end
-    end
-    
-    if setup.managePhysicsStates ~= nil then
-        sprite.managePhysicsStates = setup.managePhysicsStates
-    end
-    
-    return sprite		
 end
 
 -----------------------------------------------------------
@@ -5639,743 +10497,7 @@ end
 
 -----------------------------------------------------------
 
-local count556 = 0
-M.updateTile = function(params)
-    --local locX, locY = params.locX, params.locY
-    local locX, locY
-    if params.locX then
-        locX = params.locX
-    elseif params.levelPosX then
-        locX = math.ceil(params.levelPosX / Map.map.tilewidth)
-    end
-    if params.locY then
-        locY = params.locY
-    elseif params.levelPosY then
-        locY = math.ceil(params.levelPosY / Map.map.tileheight)
-    end
-    local layer = params.layer
-    local tile = params.tile
-    local cameraX, cameraY, cameraLocX, cameraLocY = Camera.McameraX, Camera.McameraY, Camera.McameraLocX, Camera.McameraLocY
-    if params.cameraX then
-        cameraX = cameraX
-    end
-    if params.cameraY then
-        cameraY = cameraY
-    end
-    if params.cameraLocX then
-        cameraLocX = cameraLocX
-    end
-    if params.cameraLocY then
-        cameraLocY = cameraLocY
-    end
-    Camera.McameraX, Camera.McameraY, Camera.McameraLocX, Camera.McameraLocY = cameraX, cameraY, cameraLocX, cameraLocY
-    
-    local toggleBreak = false
-    
-    if locX < 1 - Map.map.locOffsetX or locX > Map.map.layers[layer].width - Map.map.locOffsetX then
-        if not Camera.layerWrapX[layer] then
-            toggleBreak = true
-        end
-    end
-    if locY < 1 - Map.map.locOffsetY or locY > Map.map.layers[layer].height - Map.map.locOffsetY then
-        if not Camera.layerWrapY[layer] then
-            toggleBreak = true
-        end
-    end
-    
-    if not toggleBreak then
-        if locX < 1 - Map.map.locOffsetX then
-            locX = locX + Map.map.layers[layer].width
-        end
-        if locX > Map.map.layers[layer].width - Map.map.locOffsetX then
-            locX = locX - Map.map.layers[layer].width
-        end				
-        
-        if locY < 1 - Map.map.locOffsetY then
-            locY = locY + Map.map.layers[layer].height
-        end
-        if locY > Map.map.layers[layer].height - Map.map.locOffsetY then
-            locY = locY - Map.map.layers[layer].height
-        end
-        local isOwner = true
-        if not tile then
-            tile = Map.map.layers[layer].world[locX][locY]
-        end
-        
-        local temp = nil
-        if Map.tileObjects[layer][locX] and Map.tileObjects[layer][locX][locY] then		
-            --print("*", locX, locY, layer)		
-            temp = Map.tileObjects[layer][locX][locY].index
-            if params.owner then
-                isOwner = false
-                if Map.tileObjects[layer][locX][locY].owner == params.owner and tile ~= Map.tileObjects[layer][locX][locY].index then
-                    isOwner = true
-                end
-            end
-            --print("do9")
-            if isOwner then
-                if dont then
-                    if not Map.tileObjects[layer][locX][locY].noDraw then
-                        if Map.tileObjects[layer][locX][locY].sync then
-                            Map.animatedTiles[Map.tileObjects[layer][locX][locY]] = nil
-                        end
-                        Map.tileObjects[layer][locX][locY]:removeSelf()
-                        Map.totalRects[layer] = Map.totalRects[layer] - 1
-                    end
-                end
-                
-                local frameIndex = Map.map.layers[layer].world[locX][locY]
-                local tileSetIndex = 1
-                for i = 1, #Map.map.tilesets, 1 do
-                    if frameIndex >= Map.map.tilesets[i].firstgid then
-                        tileSetIndex = i
-                    else
-                        break
-                    end
-                end
-                
-                if tile == -1 then
-                    --print("do7")
-                    local mT = Map.map.tilesets[tileSetIndex]
-                    if mT.tilewidth > Map.map.tilewidth or mT.tileheight > Map.map.tileheight  then
-                        --print("do2")
-                        local width = math.ceil(mT.tilewidth / Map.map.tilewidth)
-                        local height = math.ceil(mT.tileheight / Map.map.tileheight)
-                        
-                        local left, top, right, bottom = locX, locY - height + 1, locX + width - 1, locY
-                        
-                        if (left > Map.masterGroup[layer].vars.camera[3] or right < Map.masterGroup[layer].vars.camera[1]or
-                            top > Map.masterGroup[layer].vars.camera[4] or bottom < Map.masterGroup[layer].vars.camera[2]) or params.forceCullLargeTile then
-                            --print("do3")								
-                            
-                            --print("offscreen")
-                            if not Map.tileObjects[layer][locX][locY].noDraw then
-                                if Map.tileObjects[layer][locX][locY].sync then
-                                    Map.animatedTiles[Map.tileObjects[layer][locX][locY]] = nil
-                                end
-                                Map.tileObjects[layer][locX][locY]:removeSelf()
-                                Map.totalRects[layer] = Map.totalRects[layer] - 1
-                            end
-                            Map.tileObjects[layer][locX][locY] = nil
-                            
-                        else
-                            --print("not offscreen")
-                        end
-                    else
-                        if not Map.tileObjects[layer][locX][locY].noDraw then
-                            if Map.tileObjects[layer][locX][locY].sync then
-                                Map.animatedTiles[Map.tileObjects[layer][locX][locY]] = nil
-                            end
-                            Map.tileObjects[layer][locX][locY]:removeSelf()
-                            Map.totalRects[layer] = Map.totalRects[layer] - 1
-                        end
-                        Map.tileObjects[layer][locX][locY] = nil
-                    end
-                else
-                    --print("do8")
-                    if not Map.tileObjects[layer][locX][locY].noDraw then
-                        if Map.tileObjects[layer][locX][locY].sync then
-                            Map.animatedTiles[Map.tileObjects[layer][locX][locY]] = nil
-                        end
-                        Map.tileObjects[layer][locX][locY]:removeSelf()
-                        Map.totalRects[layer] = Map.totalRects[layer] - 1
-                    end
-                    Map.tileObjects[layer][locX][locY] = nil
-                end	
-                --Map.tileObjects[layer][locX][locY] = nil
-                
-                
-            else
-                tile = 0
-            end
-        end
-        if tile == 0 and isOwner then
-            Map.map.layers[layer].world[locX][locY] = tile
-        end
-        
-        if tile > 0 then
-            --print("do", locX, locY, layer)
-            Map.map.layers[layer].world[locX][locY] = tile	
-            count556 = count556 + 1
-            local levelPosX = locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
-            local levelPosY = locY * Map.map.tileheight - (Map.map.tileheight / 2)
-            if Camera.layerWrapX[layer] then
-                if cameraLocX - locX < Map.map.layers[layer].width / -2 then
-                    --wrap around to the left
-                    levelPosX = levelPosX - Map.map.layers[layer].width * Map.map.tilewidth
-                elseif cameraLocX - locX > Map.map.layers[layer].width / 2 then
-                    --wrap around to the right
-                    levelPosX = levelPosX + Map.map.layers[layer].width * Map.map.tilewidth
-                end
-            end
-            if Camera.layerWrapY[layer] then
-                if cameraLocY - locY < Map.map.layers[layer].height / -2 then
-                    --wrap around to the top
-                    levelPosY = levelPosY - Map.map.layers[layer].height * Map.map.tileheight
-                elseif cameraLocY - locY > Map.map.layers[layer].height / 2 then
-                    --wrap around to the bottom
-                    levelPosY = levelPosY + Map.map.layers[layer].height * Map.map.tileheight
-                end
-            end
-            if Map.map.orientation == Map.Type.Isometric then
-                local isoPos = Map.isoTransform2(levelPosX, levelPosY)
-                levelPosX = isoPos[1]
-                levelPosY = isoPos[2]
-            end
-            local frameIndex = tile
-            local tileSetIndex = 1
-            for i = 1, #Map.map.tilesets, 1 do
-                if frameIndex >= Map.map.tilesets[i].firstgid then
-                    tileSetIndex = i
-                else
-                    break
-                end
-            end
-            frameIndex = frameIndex - (Map.map.tilesets[tileSetIndex].firstgid - 1)
-            local tileStr = tostring(frameIndex - 1)
-            local tempScaleX = Map.map.tilesets[tileSetIndex].tilewidth
-            local tempScaleY = Map.map.tilesets[tileSetIndex].tileheight
-            local offsetX = tempScaleX / 2 - Map.map.tilewidth / 2
-            local offsetY = tempScaleY / 2 - Map.map.tileheight / 2			
-            local listenerCheck = false
-            local offsetZ = 0				
-            if Map.map.orientation == Map.Type.Isometric then
-                tempScaleX = tempScaleX / Map.isoScaleMod + Map.overDraw
-                tempScaleY = tempScaleY / Map.isoScaleMod + Map.overDraw
-                offsetY = offsetY / Map.isoScaleMod
-            else
-                tempScaleX = tempScaleX + Map.overDraw
-                tempScaleY = tempScaleY + Map.overDraw
-            end				
-            local tileProps
-            if Map.map.tilesets[tileSetIndex].tileproperties then
-                if Map.map.tilesets[tileSetIndex].tileproperties[tileStr] then
-                    tileProps = Map.map.tilesets[tileSetIndex].tileproperties[tileStr]
-                    if tileProps["offsetZ"] then
-                        offsetZ = tonumber(tileProps["offsetZ"])
-                    end
-                end
-            end				
-            local paint
-            local normalMap = false
-            if Map.enableNormalMaps then
-                if Map.normalSets[tileSetIndex] then
-                    if not tileProps or not tileProps["normalMap"] or tileProps["normalMap"] ~= "false" then
-                        paint = {
-                            type = "composite",
-                            paint1 = {type = "image", sheet = Map.tileSets[tileSetIndex], frame = frameIndex},
-                            paint2 = {type = "image", sheet = Map.normalSets[tileSetIndex], frame = frameIndex}
-                        }
-                        normalMap = true
-                    else
-                        --paint = {type = "image", sheet = Map.tileSets[tileSetIndex], frame = frameIndex}
-                    end
-                elseif Map.map.defaultNormalMap then
-                    paint = {
-                        type = "composite",
-                        paint1 = {type = "image", sheet = Map.tileSets[tileSetIndex], frame = frameIndex},
-                        paint2 = {type = "image", filename = Map.map.defaultNormalMap}
-                    }
-                    normalMap = true
-                else
-                    --paint = {type = "image", sheet = Map.tileSets[tileSetIndex], frame = frameIndex}
-                end
-            else
-                --paint = {type = "image", sheet = Map.tileSets[tileSetIndex], frame = frameIndex}
-            end
-            
-            local render = true
-            if (tileProps and params.onlyPhysics and not tileProps["physics"]) or (not tileProps and params.onlyPhysics) then
-                render = false
-            end
-            
-            if render then
-                
-                --print("do")
-                if tileProps then
-                    --print("do")
-                    if not tileProps["noDraw"] and not Map.map.tilesets[tileSetIndex].properties["noDraw"] and not Map.map.layers[layer].properties["noDraw"] then
-                        if tileProps["animFrames"] then
-                            Map.tileObjects[layer][locX][locY] = display.newSprite(Map.masterGroup[layer][1],Map.tileSets[tileSetIndex], tileProps["sequenceData"])
-                            Map.tileObjects[layer][locX][locY].xScale = tempScaleX / Map.map.tilewidth
-                            Map.tileObjects[layer][locX][locY].yScale = tempScaleY / Map.map.tileheight
-                            Map.tileObjects[layer][locX][locY]:setSequence("null")
-                            Map.tileObjects[layer][locX][locY].sync = tileProps["animSync"]
-                            Map.animatedTiles[Map.tileObjects[layer][locX][locY]] = Map.tileObjects[layer][locX][locY]
-                        else
-                            if normalMap then
-                                Map.tileObjects[layer][locX][locY] = display.newRect(Map.masterGroup[layer][1], 0, 0, tempScaleX, tempScaleY)
-                                Map.tileObjects[layer][locX][locY].fill = paint
-                                Map.tileObjects[layer][locX][locY].fill.effect = "composite.normalMapWith1PointLight"
-                                Map.tileObjects[layer][locX][locY].normalMap = true
-                            else
-                                Map.tileObjects[layer][locX][locY] = display.newImageRect(Map.masterGroup[layer][1], 
-                                Map.tileSets[tileSetIndex], frameIndex, tempScaleX, tempScaleY
-                                )
-                            end
-                        end
-                    else
-                        Map.tileObjects[layer][locX][locY] = {}
-                        Map.tileObjects[layer][locX][locY].noDraw = true
-                    end
-                    Map.tileObjects[layer][locX][locY].properties = tileProps
-                    listenerCheck = Map.tileObjects[layer][locX][locY]
-                else
-                    if not Map.map.tilesets[tileSetIndex].properties["noDraw"] and not Map.map.layers[layer].properties["noDraw"] then
-                        if normalMap then
-                            Map.tileObjects[layer][locX][locY] = display.newRect(Map.masterGroup[layer][1], 0, 0, tempScaleX, tempScaleY)
-                            Map.tileObjects[layer][locX][locY].fill = paint
-                            Map.tileObjects[layer][locX][locY].fill.effect = "composite.normalMapWith1PointLight"
-                            Map.tileObjects[layer][locX][locY].normalMap = true
-                        else
-                            --print(layer, locX, locY)
-                            --print(Map.tileObjects[layer][locX])
-                            Map.tileObjects[layer][locX][locY] = display.newImageRect(Map.masterGroup[layer][1], 
-                            Map.tileSets[tileSetIndex], frameIndex, tempScaleX, tempScaleY
-                            )
-                        end
-                    else
-                        Map.tileObjects[layer][locX][locY] = {}
-                        Map.tileObjects[layer][locX][locY].noDraw = true
-                    end
-                end
-                local rect = Map.tileObjects[layer][locX][locY]
-                rect.x = levelPosX + offsetX
-                rect.y = levelPosY - offsetY
-                --print(Map.masterGroup[1], Map.masterGroup[2], Map.masterGroup[3], Map.masterGroup[4], Map.masterGroup[5], Map.masterGroup[6], Map.masterGroup[7])
-                --print(locX, locY, tempScaleX, tempScaleY, rect.x, rect.y, Map.masterGroup[layer].x, Map.masterGroup[layer].y)
-                rect.levelPosX = rect.x
-                rect.levelPosY = rect.y
-                rect.layer = layer
-                rect.level = Map.map.layers[layer].properties.level
-                rect.locX = locX
-                rect.locY = locY
-                rect.index = frameIndex
-                rect.tileSet = tileSetIndex
-                rect.tile = tileStr
-                rect.tempScaleX = tempScaleX
-                rect.tempScaleY = tempScaleY
-                if normalMap and Light.pointLightSource then
-                    local lightX = Light.pointLightSource.x
-                    local lightY = Light.pointLightSource.y
-                    if Light.pointLightSource.pointLight then
-                        if Light.pointLightSource.pointLight.pointLightPos then
-                            rect.fill.effect.pointLightPos = {((lightX + Light.pointLightSource.pointLight.pointLightPos[1]) - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
-                                ((lightY + Light.pointLightSource.pointLight.pointLightPos[2]) - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
-                                Light.pointLightSource.pointLight.pointLightPos[3]
-                            }
-                        else
-                            rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
-                                (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
-                                0.1
-                            }
-                        end
-                        if Light.pointLightSource.pointLight.pointLightColor then
-                            rect.fill.effect.pointLightColor = Light.pointLightSource.pointLight.pointLightColor
-                        end
-                        if Light.pointLightSource.pointLight.ambientLightIntensity then
-                            rect.fill.effect.ambientLightIntensity = Light.pointLightSource.pointLight.ambientLightIntensity
-                        end
-                        if Light.pointLightSource.pointLight.attenuationFactors then
-                            rect.fill.effect.attenuationFactors = Light.pointLightSource.pointLight.attenuationFactors
-                        end 
-                    else
-                        rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
-                            (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
-                            0.1
-                        }
-                    end
-                end
-                if params.owner then
-                    rect.owner = params.owner
-                end
-                
-                if not rect.noDraw then
-                    Map.totalRects[layer] = Map.totalRects[layer] + 1
-                    
-                    if Map.map.orientation == Map.Type.Isometric then
-                        if Map.isoSort == 1 then
-                            Map.masterGroup[layer][locX + locY - 1][1]:insert(Map.tileObjects[layer][locX][locY])
-                        elseif Map.isoSort == 2 then
-                            
-                        end
-                    end
-                    
-                    if tileProps then
-                        if tileProps["path"] then
-                            local path = json.decode(tileProps["path"])
-                            local rectpath = rect.path
-                            rect.pathToggle = true
-                            rectpath.x1 = path[1]
-                            rectpath.y1 = path[2]
-                            rectpath.x2 = path[3]
-                            rectpath.y2 = path[4]
-                            rectpath.x3 = path[5]
-                            rectpath.y3 = path[6]
-                            rectpath.x4 = path[7]
-                            rectpath.y4 = path[8]
-                        end
-                        if tileProps["heightMap"] then
-                            rect.heightMap = json.decode(tileProps["heightMap"])
-                        end
-                    end
-                    
-                    if M.enableLighting then
-                        rect.litBy = {}
-                        local mapLayerFalloff = Map.map.properties.lightLayerFalloff
-                        local mapLevelFalloff = Map.map.properties.lightLevelFalloff
-                        local redf, greenf, bluef = Map.map.layers[layer].redLight, Map.map.layers[layer].greenLight, Map.map.layers[layer].blueLight
-                        if Map.map.perlinLighting then
-                            redf = redf * Map.map.perlinLighting[locX][locY]
-                            greenf = greenf * Map.map.perlinLighting[locX][locY]
-                            bluef = bluef * Map.map.perlinLighting[locX][locY]
-                        elseif Map.map.layers[layer].perlinLighting then
-                            redf = redf * Map.map.layers[layer].perlinLighting[locX][locY]
-                            greenf = greenf * Map.map.layers[layer].perlinLighting[locX][locY]
-                            bluef = bluef * Map.map.layers[layer].perlinLighting[locX][locY]
-                        end
-                        for i = 1, #Map.map.layers, 1 do
-                            if Map.map.layers[i].lighting[locX][locY] then
-                                local temp = Map.map.layers[i].lighting[locX][locY]
-                                for key,value in pairs(temp) do
-                                    local levelDiff = math.abs(M.getLevel(layer) - Map.map.lights[key].level)
-                                    local layerDiff = math.abs(layer - Map.map.lights[key].layer)
-                                    
-                                    local layerFalloff, levelFalloff
-                                    if Map.map.lights[key].layerFalloff then
-                                        layerFalloff = Map.map.lights[key].layerFalloff
-                                    else
-                                        layerFalloff = mapLayerFalloff
-                                    end
-                                    
-                                    if Map.map.lights[key].levelFalloff then
-                                        levelFalloff = Map.map.lights[key].levelFalloff
-                                    else
-                                        levelFalloff = mapLevelFalloff
-                                    end
-                                    local tR = temp[key].light[1] - (levelDiff * levelFalloff[1]) - (layerDiff * layerFalloff[1])
-                                    local tG = temp[key].light[2] - (levelDiff * levelFalloff[2]) - (layerDiff * layerFalloff[2])
-                                    local tB = temp[key].light[3] - (levelDiff * levelFalloff[3]) - (layerDiff * layerFalloff[3])
-                                    
-                                    if tR > redf then
-                                        redf = tR
-                                    end
-                                    if tG > greenf then
-                                        greenf = tG
-                                    end
-                                    if tB > bluef then
-                                        bluef = tB
-                                    end
-                                    
-                                    rect.litBy[#rect.litBy + 1] = key
-                                end
-                            end
-                        end
-                        rect:setFillColor(redf, greenf, bluef)
-                        rect.color = {redf, greenf, bluef}
-                    else
-                        local redf, greenf, bluef = Map.map.layers[layer].redLight, Map.map.layers[layer].greenLight, Map.map.layers[layer].blueLight
-                        if Map.map.perlinLighting then	
-                            redf = redf * Map.map.perlinLighting[locX][locY]
-                            greenf = greenf * Map.map.perlinLighting[locX][locY]
-                            bluef = bluef * Map.map.perlinLighting[locX][locY]
-                        elseif Map.map.layers[layer].perlinLighting then
-                            redf = redf * Map.map.layers[layer].perlinLighting[locX][locY]
-                            greenf = greenf * Map.map.layers[layer].perlinLighting[locX][locY]
-                            bluef = bluef * Map.map.layers[layer].perlinLighting[locX][locY]
-                        end
-                        rect:setFillColor(redf, greenf, bluef)
-                    end
-                    
-                    if Map.enableFlipRotation then
-                        if Map.map.layers[layer].flipRotation[locX][locY] or Map.map.layers[layer].flipRotation[locX][tostring(locY)] then
-                            local command
-                            if Map.map.layers[layer].flipRotation[locX][locY] then
-                                command = Map.map.layers[layer].flipRotation[locX][locY]
-                            else
-                                command = Map.map.layers[layer].flipRotation[locX][tostring(locY)]
-                                Map.map.layers[layer].flipRotation[locX][locY] = command
-                                Map.map.layers[layer].flipRotation[locX][tostring(locY)] = nil
-                            end
-                            if command == 3 then
-                                rect.rotation = 270
-                            elseif command == 5 then
-                                rect.rotation = 90
-                            elseif command == 6 then
-                                rect.rotation = 180
-                            elseif command == 2 then
-                                rect.yScale = -1
-                            elseif command == 4 then
-                                rect.xScale = -1
-                            elseif command == 1 then
-                                rect.rotation = 90
-                                rect.yScale = -1
-                            elseif command == 7 then
-                                rect.rotation = -90
-                                rect.yScale = -1
-                            end
-                        end
-                    end	
-                    
-                    rect.makeSprite = function(self)
-                        local kind = "imageRect"
-                        if rect.sync then
-                            kind = "sprite"
-                            Sprites.tempObjects[#Sprites.tempObjects + 1] = display.newSprite(Map.masterGroup[layer],Map.tileSets[tileSetIndex], 
-                            tileProps["sequenceData"])
-                            Sprites.tempObjects[#Sprites.tempObjects].xScale = Map.findScaleX(worldScaleX, layer)
-                            Sprites.tempObjects[#Sprites.tempObjects].yScale = Map.findScaleY(worldScaleY, layer)
-                            Sprites.tempObjects[#Sprites.tempObjects].layer = layer
-                            Sprites.tempObjects[#Sprites.tempObjects]:setSequence("null")
-                            Sprites.tempObjects[#Sprites.tempObjects].sync = tileProps["animSync"]
-                        else
-                            Sprites.tempObjects[#Sprites.tempObjects + 1] = display.newImageRect(Map.masterGroup[layer], 
-                            Map.tileSets[tileSetIndex], frameIndex, tempScaleX, tempScaleY
-                            )
-                        end
-                        local spriteName = ""..layer..locX..locY
-                        local setup = {layer = layer, kind = kind, locX = locX, locY = locY, 
-                            levelWidth = tempScaleX, levelHeight = tempScaleY, 
-                            offsetX = offsetX, offsetY = offsetY * -1, name = spriteName
-                        }
-                        M.addSprite(Sprites.tempObjects[#Sprites.tempObjects], setup)
-                        Sprites.tempObjects[#Sprites.tempObjects].width = tempScaleX
-                        Sprites.tempObjects[#Sprites.tempObjects].height = tempScaleY
-                        if Map.tileObjects[layer][locX][locY].bodyType then
-                            physics.addBody( Sprites.tempObjects[#Sprites.tempObjects], bodyType, {density = density, 
-                                friction = friction, 
-                                bounce = bounce,
-                                radius = radius,
-                                shape = shape2,
-                                filter = filter
-                            })
-                            if rect.properties and rect.properties.isAwake then
-                                if rect.properties.isAwake == "true" then
-                                    Sprites.tempObjects[#Sprites.tempObjects].isAwake = true
-                                else
-                                    Sprites.tempObjects[#Sprites.tempObjects].isAwake = false
-                                end
-                            else
-                                Sprites.tempObjects[#Sprites.tempObjects].isAwake = PhysicsData.layer[layer].isAwake
-                            end
-                            if rect.properties and rect.properties.isBodyActive then
-                                if rect.properties.isBodyActive == "true" then
-                                    Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = true
-                                else
-                                    Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = false
-                                end
-                            else
-                                Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = PhysicsData.layer[layer].isActive
-                            end
-                        end
-                        if Sprites.tempObjects[#Sprites.tempObjects].sync then
-                            Sprites.tempObjects[#Sprites.tempObjects]:setSequence("null")
-                            Sprites.tempObjects[#Sprites.tempObjects]:play()
-                        end
-                        return Sprites.tempObjects[#Sprites.tempObjects]
-                    end
-                    
-                    if PhysicsData.enablePhysics[layer] then
-                        local bodyType, density, friction, bounce, radius, shape2, filter
-                        bodyType = PhysicsData.layer[layer].defaultBodyType
-                        density = PhysicsData.layer[layer].defaultDensity
-                        friction = PhysicsData.layer[layer].defaultFriction
-                        bounce = PhysicsData.layer[layer].defaultBounce
-                        radius = PhysicsData.layer[layer].defaultRadius
-                        filter = PhysicsData.layer[layer].defaultFilter
-                        
-                        if Map.map.layers[layer].properties["forceDefaultPhysics"] or tileProps then
-                            if Map.map.layers[layer].properties["forceDefaultPhysics"] or
-                                tileProps["physics"] == "true" or 
-                                tileProps["shapeID"] then
-                                local tempTileProps = false
-                                if not tileProps then
-                                    tileProps = {}
-                                    tempTileProps = true
-                                end
-                                local scaleFactor = 1
-                                
-                                local data = nil
-                                if tileProps["physicsSource"] then
-                                    if tileProps["physicsSourceScale"] then
-                                        scaleFactor = tonumber(tileProps["physicsSourceScale"])
-                                    end
-                                    local source = tileProps["physicsSource"]:gsub(".lua", "")
-                                    data = require(source).PhysicsData(scaleFactor)
-                                    bodyType = "dynamic"
-                                end
-                                if Map.map.tilesets[tileSetIndex].PhysicsData then
-                                    if tileProps["shapeID"] then
-                                        data = true
-                                        bodyType = "dynamic"					
-                                    end
-                                end					
-                                if tileProps["bodyType"] then
-                                    bodyType = tileProps["bodyType"]
-                                end
-                                if not data then
-                                    if tileProps["density"] then
-                                        density = tileProps["density"]
-                                    end
-                                    if tileProps["friction"] then
-                                        friction = tileProps["friction"]
-                                    end
-                                    if tileProps["bounce"] then
-                                        bounce = tileProps["bounce"]
-                                    end
-                                    if tileProps["radius"] then
-                                        radius = tileProps["radius"]
-                                    else
-                                        shape2 = PhysicsData.layer[layer].defaultShape
-                                    end
-                                    if tileProps["shape"] then
-                                        local shape = tileProps["shape"]
-                                        shape2 = {}
-                                        for key,value in pairs(shape) do
-                                            shape2[key] = value
-                                        end
-                                    end					
-                                    if tileProps["groupIndex"] or 
-                                        tileProps["categoryBits"] or 
-                                        tileProps["maskBits"] then
-                                        filter = {categoryBits = tileProps["categoryBits"],
-                                            maskBits = tileProps["maskBits"],
-                                            groupIndex = tileProps["groupIndex"]
-                                        }
-                                    end
-                                end					
-                                if bodyType ~= "static" then
-                                    local kind = "imageRect"
-                                    if rect then
-                                        if rect.sync then
-                                            Map.animatedTiles[rect] = nil
-                                        end
-                                        Sprites.tempObjects[#Sprites.tempObjects + 1] = rect
-                                        if Sprites.tempObjects[#Sprites.tempObjects].sync then
-                                            kind = "sprite"
-                                        end
-                                        Map.tileObjects[layer][locX][locY] = nil
-                                        Map.totalRects[layer] = Map.totalRects[layer] - 1
-                                    else
-                                        Sprites.tempObjects[#Sprites.tempObjects + 1] = display.newImageRect(Map.masterGroup[layer], 
-                                        Map.tileSets[tileSetIndex], frameIndex, tempScaleX, tempScaleY
-                                        )
-                                    end
-                                    local spriteName = ""..layer..locX..locY
-                                    local setup = {layer = layer, kind = kind, locX = locX, locY = locY, 
-                                        levelWidth = tempScaleX, levelHeight = tempScaleY, 
-                                        offsetX = offsetX, offsetY = offsetY * -1, name = spriteName
-                                    }
-                                    if Map.map.layers[layer].properties["noDraw"] or tileProps["offscreenPhysics"] then
-                                        setup.offscreenPhysics = true
-                                    end
-                                    if tileProps["layer"] then
-                                        setup.layer = tonumber(tileProps["layer"])
-                                    end
-                                    M.addSprite(Sprites.tempObjects[#Sprites.tempObjects], setup)
-                                    Sprites.tempObjects[#Sprites.tempObjects].width = tempScaleX
-                                    Sprites.tempObjects[#Sprites.tempObjects].height = tempScaleY
-                                    if data ~= nil then
-                                        if data == true then 
-                                            physics.addBody( Sprites.tempObjects[#Sprites.tempObjects], bodyType, Map.map.tilesets[tileSetIndex].PhysicsData:get(tileProps["shapeID"]) )
-                                        else
-                                            physics.addBody( Sprites.tempObjects[#Sprites.tempObjects], bodyType, data:get(tileProps["shapeID"]) )
-                                        end
-                                    else
-                                        physics.addBody( Sprites.tempObjects[#Sprites.tempObjects], bodyType, {density = density, 
-                                            friction = friction, 
-                                            bounce = bounce,
-                                            radius = radius,
-                                            shape = shape2,
-                                            filter = filter
-                                        })
-                                    end
-                                    Map.map.layers[layer].world[locX][locY] = 0
-                                    if rect.properties and rect.properties.isAwake then
-                                        if rect.properties.isAwake == "true" then
-                                            Sprites.tempObjects[#Sprites.tempObjects].isAwake = true
-                                        else
-                                            Sprites.tempObjects[#Sprites.tempObjects].isAwake = false
-                                        end
-                                    else
-                                        Sprites.tempObjects[#Sprites.tempObjects].isAwake = PhysicsData.layer[layer].isAwake
-                                    end
-                                    if rect.properties and rect.properties.isBodyActive then
-                                        if rect.properties.isBodyActive == "true" then
-                                            Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = true
-                                        else
-                                            Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = false
-                                        end
-                                    else
-                                        Sprites.tempObjects[#Sprites.tempObjects].isBodyActive = PhysicsData.layer[layer].isActive
-                                    end
-                                    if Sprites.tempObjects[#Sprites.tempObjects].sync then
-                                        Sprites.tempObjects[#Sprites.tempObjects]:setSequence("null")
-                                        Sprites.tempObjects[#Sprites.tempObjects]:play()
-                                    end
-                                    listenerCheck = Sprites.tempObjects[#Sprites.tempObjects]
-                                else
-                                    rect.width = tempScaleX
-                                    rect.height = tempScaleY
-                                    if data ~= nil then
-                                        if data == true then 
-                                            physics.addBody( rect, bodyType, Map.map.tilesets[tileSetIndex].PhysicsData:get(tileProps["shapeID"]) )
-                                        else
-                                            physics.addBody( rect, bodyType, data:get(tileProps["shapeID"]) )
-                                        end
-                                    else
-                                        physics.addBody( rect, bodyType, {density = density, 
-                                            friction = friction, 
-                                            bounce = bounce,
-                                            radius = radius,
-                                            shape = shape2,
-                                            filter = filter
-                                        })
-                                    end
-                                    rect.physics = true
-                                    if rect.properties and rect.properties.isAwake then
-                                        if rect.properties.isAwake == "true" then
-                                            rect.isAwake = true
-                                        else
-                                            rect.isAwake = false
-                                        end
-                                    else
-                                        rect.isAwake = PhysicsData.layer[layer].isAwake
-                                    end
-                                    if rect.properties and rect.properties.isBodyActive then
-                                        if rect.properties.isBodyActive == "true" then
-                                            rect.isBodyActive = true
-                                        else
-                                            rect.isBodyActive = false
-                                        end
-                                    else
-                                        rect.isBodyActive = PhysicsData.layer[layer].isActive
-                                    end
-                                end
-                                if tempTileProps then
-                                    tileProps = nil
-                                end
-                            end
-                        end
-                    end
-                    ----
-                end
-                
-                if listenerCheck then
-                    for key,value in pairs(propertyListeners) do
-                        if tileProps[key] then
-                            local event = { name = key, target = listenerCheck}
-                            Map.masterGroup:dispatchEvent( event )
-                        end
-                    end
-                end
-                -----------
-                
-                return isOwner
-            end
-        end	
-    end	
-end
+
 
 -----------------------------------------------------------
 
@@ -8265,52 +12387,6 @@ end
 
 -----------------------------------------------------------
 
-local drawCulledObjects = function(locX, locY, layer)
-    if Map.map.layers[layer].extendedObjects then
-        if locX < 1 - Map.map.locOffsetX then
-            locX = locX + Map.map.layers[layer].width
-        end
-        if locX > Map.map.layers[layer].width - Map.map.locOffsetX then
-            locX = locX - Map.map.layers[layer].width
-        end				
-        
-        if locY < 1 - Map.map.locOffsetY then
-            locY = locY + Map.map.layers[layer].height
-        end
-        if locY > Map.map.layers[layer].height - Map.map.locOffsetY then
-            locY = locY - Map.map.layers[layer].height
-        end
-        
-        if Map.map.layers[layer].extendedObjects[locX] and Map.map.layers[layer].extendedObjects[locX][locY] then
-            for i = #Map.map.layers[layer].extendedObjects[locX][locY], 1, -1 do
-                if Map.map.layers[layer].extendedObjects[locX][locY][i] then
-                    local objectLayer = Map.map.layers[layer].extendedObjects[locX][locY][i][1]
-                    local objectKey =  Map.map.layers[layer].extendedObjects[locX][locY][i][2]
-                    local object = Map.map.layers[objectLayer].objects[objectKey]
-                    if not object.properties.wasDrawn then
-                        local sprite = drawObject(object, objectLayer, objectKey)
-                        sprite.x = object.cullData[1]
-                        sprite.y = object.cullData[2]
-                        sprite.width = object.cullData[3]
-                        sprite.height = object.cullData[4]
-                        sprite.roation = object.cullData[5]
-                        
-                        for j = #object.cullData[6], 1, -1 do
-                            local lx = object.cullData[6][j][1]
-                            local ly = object.cullData[6][j][2]
-                            local index = object.cullData[6][j][3]
-                            Map.map.layers[objectLayer].extendedObjects[lx][ly][index] = nil
-                        end
-                    end
-                    Map.map.layers[layer].extendedObjects[locX][locY][i] = nil
-                end
-            end
-        end
-    end
-end
-
------------------------------------------------------------
-
 M.redrawObject = function(name)
     local layer = nil
     local key = nil	
@@ -8318,7 +12394,7 @@ M.redrawObject = function(name)
     if Sprites.sprites[name] and Sprites.sprites[name].drawnObject then
         key = Sprites.sprites[name].objectKey
         layer = Sprites.sprites[name].objectLayer
-        M.removeSprite(Sprites.sprites[name])
+        Sprite.removeSprite(Sprites.sprites[name])
     end
     
     local objects = Map.map.layers[layer].objects
@@ -10117,7 +14193,7 @@ M.loadMap = function(src, dir, unload)
     Xml.src = src
     local startTime=system.getTimer()
     for key,value in pairs(Sprites.sprites) do
-        M.removeSprite(value)
+        Sprite.removeSprite(value)
     end
     if Map.masterGroup then
         if Map.map.orientation == Map.Type.Isometric then
@@ -11495,3914 +15571,8 @@ end
 
 -----------------------------------------------------------
 
-local isMoving = {}
-local count = 0
-
 Sprites.spritesFrozen = false
 Camera.McameraFrozen = false
-M.tileAnimsFrozen = false
-
------------------------------------------------------------
-
-local drawLargeTile = function(locX, locY, layer, owner)
-    
-    if locX < 1 - Map.map.locOffsetX then
-        locX = locX + Map.map.layers[layer].width
-    end
-    if locX > Map.map.layers[layer].width - Map.map.locOffsetX then
-        locX = locX - Map.map.layers[layer].width
-    end				
-    
-    if locY < 1 - Map.map.locOffsetY then
-        locY = locY + Map.map.layers[layer].height
-    end
-    if locY > Map.map.layers[layer].height - Map.map.locOffsetY then
-        locY = locY - Map.map.layers[layer].height
-    end
-    if Map.map.layers[layer].largeTiles[locX] and Map.map.layers[layer].largeTiles[locX][locY] then
-        for i = 1, #Map.map.layers[layer].largeTiles[locX][locY], 1 do
-            local frameIndex = Map.map.layers[layer].largeTiles[locX][locY][i][1]
-            local lx = Map.map.layers[layer].largeTiles[locX][locY][i][2]
-            local ly = Map.map.layers[layer].largeTiles[locX][locY][i][3]
-            
-            if not Map.tileObjects[layer][lx][ly] then
-                M.updateTile({locX = lx, locY = ly, layer = layer})
-            end
-        end
-    end
-end
-
------------------------------------------------------------
-
-local cullLargeTile = function(locX, locY, layer, force)
-    
-    local tlocx, tlocy = locX, locY
-    if locX < 1 - Map.map.locOffsetX then
-        locX = locX + Map.map.layers[layer].width
-    end
-    if locX > Map.map.layers[layer].width - Map.map.locOffsetX then
-        locX = locX - Map.map.layers[layer].width
-    end				
-    
-    if locY < 1 - Map.map.locOffsetY then
-        locY = locY + Map.map.layers[layer].height
-    end
-    if locY > Map.map.layers[layer].height - Map.map.locOffsetY then
-        locY = locY - Map.map.layers[layer].height
-    end
-    
-    if Map.map.layers[layer].largeTiles[locX] and Map.map.layers[layer].largeTiles[locX][locY] then
-        for i = 1, #Map.map.layers[layer].largeTiles[locX][locY], 1 do
-            local frameIndex = Map.map.layers[layer].largeTiles[locX][locY][i][1]
-            local lx = Map.map.layers[layer].largeTiles[locX][locY][i][2]
-            local ly = Map.map.layers[layer].largeTiles[locX][locY][i][3]
-            
-            if Map.tileObjects[layer][lx][ly] then
-                local frameIndex = Map.map.layers[layer].world[lx][ly]
-                local tileSetIndex = 1
-                for i = 1, #Map.map.tilesets, 1 do
-                    if frameIndex >= Map.map.tilesets[i].firstgid then
-                        tileSetIndex = i
-                    else
-                        break
-                    end
-                end
-                
-                local mT = Map.map.tilesets[tileSetIndex]
-                if mT.tilewidth > Map.map.tilewidth or mT.tileheight > Map.map.tileheight  then
-                    local width = math.ceil(mT.tilewidth / Map.map.tilewidth)
-                    local height = math.ceil(mT.tileheight / Map.map.tileheight)
-                    local left, top, right, bottom = lx, ly - height + 1, lx + width - 1, ly
-                    if (left > Map.masterGroup[layer].vars.camera[3] or right < Map.masterGroup[layer].vars.camera[1]or
-                        top > Map.masterGroup[layer].vars.camera[4] or bottom < Map.masterGroup[layer].vars.camera[2]) or force then
-                        if force then
-                            M.updateTile({locX = lx, locY = ly, layer = layer, tile = -1, forceCullLargeTile = true})
-                        else
-                            M.updateTile({locX = lx, locY = ly, layer = layer, tile = -1})
-                        end
-                    end
-                end
-            end
-        end
-    end
-end
-
------------------------------------------------------------
-
-M.update = function()
-    if Camera.touchScroll[1] and Camera.touchScroll[6] then
-        local velX = (Camera.touchScroll[2] - Camera.touchScroll[4]) / Map.masterGroup.xScale
-        local velY = (Camera.touchScroll[3] - Camera.touchScroll[5]) / Map.masterGroup.yScale
-        
-        --print(velX, velY)
-        M.moveCamera(velX, velY)
-        Camera.touchScroll[2] = Camera.touchScroll[4]
-        Camera.touchScroll[3] = Camera.touchScroll[5]	
-    end	
-    
-    count556 = 0
-    local lights = ""
-    
-    Screen.UpdateScreenBounds()
-    
-    --PROCESS SPRITES
-    if not Sprites.spritesFrozen then
-        local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-        local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-        if Map.map.orientation == Map.Type.Isometric then
-            local isoPos = Map.isoUntransform2(cameraX, cameraY)
-            cameraX = isoPos[1]
-            cameraY = isoPos[2]
-        end
-        local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-        local cameraLocY = math.ceil(cameraY / Map.map.tileheight)			
-        Camera.McameraX, Camera.McameraY = cameraX, cameraY
-        Camera.McameraLocX = cameraLocX
-        Camera.McameraLocY = cameraLocY
-        
-        local processObject = function(object, lyr)
-            if not object.layer then
-                object.layer = lyr
-            end
-            local i = object.layer
-            object.level = M.getLevel(i)				
-            if not object.name then
-                local spriteName = ""..object.x.."_"..object.y.."_"..i
-                if Sprites.sprites[spriteName] then
-                    local tempName = spriteName
-                    local counter = 1
-                    while Sprites.sprites[tempName] do
-                        tempName = ""..spriteName..counter
-                        counter = counter + 1
-                    end
-                    spriteName = tempName
-                end
-                object.name = spriteName
-                if not Sprites.sprites[spriteName] then
-                    Sprites.sprites[spriteName] = sprite
-                end
-            end	
-            
-            if not Light.pointLightSource then
-                Light.pointLightSource = object
-            end				
-            
-            if object.lighting then
-                local mL = Map.map.layers[i]
-                if object.objType ~= 3 then
-                    if not object.color then
-                        object.color = {1, 1, 1}
-                    end
-                else
-                    for i = 1, object.numChildren, 1 do
-                        if object[i]._class then
-                            if object.color and not object[i].color then
-                                object[i].color = object.color
-                            end
-                            if not object[i].color then
-                                object[i].color = {1, 1, 1}
-                            end
-                        end
-                    end
-                end
-            end				
-            
-            if object.offsetX then
-                --object.anchorX = (((object.levelWidth or object.width) / 2) - object.offsetX) / (object.levelWidth or object.width)
-            end
-            if object.offsetY then
-                --object.anchorY = (((object.levelHeight or object.height) / 2) - object.offsetY) / (object.levelHeight or object.height)		
-            end		
-            
-            if Map.map.orientation == Map.Type.Isometric then
-                --Clear Lighting (ISO)
-                if object.light then
-                    if not object.light.created then
-                        object.light.created = true
-                        if not object.light.id then
-                            object.light.id = Light.lightIDs
-                        end
-                        Light.lightIDs = Light.lightIDs + 1						
-                        if not object.light.maxRange then
-                            local maxRange = object.light.range[1]
-                            for l = 1, 3, 1 do
-                                if object.light.range[l] > maxRange then
-                                    maxRange = object.light.range[l]
-                                end
-                            end
-                            object.light.maxRange = maxRange
-                        end		
-                        if not object.light.levelPosX then
-                            object.light.levelPosX = object.levelPosX or object.x
-                            object.light.levelPosY = object.levelPosY or object.y
-                        end		
-                        if not object.light.alternatorCounter then
-                            object.light.alternatorCounter = 1
-                        end		
-                        if object.light.rays then
-                            object.light.areaIndex = 1
-                        end		
-                        if object.light.layerRelative then
-                            object.light.layer = i + object.light.layerRelative
-                            if object.light.layer < 1 then
-                                object.light.layer = 1
-                            end
-                            if object.light.layer > #Map.map.layers then
-                                object.light.layer = #Map.map.layers
-                            end
-                        end						
-                        if not object.light.layer then
-                            object.light.layer = i
-                        end						
-                        object.light.level = object.level
-                        object.light.dynamic = true
-                        object.light.area = {}
-                        Map.map.lights[object.light.id] = object.light
-                    else
-                        if Light.lightingData.refreshCounter == 1 then
-                            if object.light.rays then
-                                object.light.areaIndex = 1
-                            end			
-                            local length = #object.light.area
-                            for i = length, 1, -1 do
-                                local locX = object.light.area[i][1]
-                                local locY = object.light.area[i][2]
-                                object.light.area[i] = nil
-                                if Camera.worldWrapX then
-                                    if locX < 1 - Map.map.locOffsetX then
-                                        locX = locX + Map.map.width
-                                    end
-                                    if locX > Map.map.width - Map.map.locOffsetX then
-                                        locX = locX - Map.map.width
-                                    end
-                                end
-                                if Camera.worldWrapY then
-                                    if locY < 1 - Map.map.locOffsetY then
-                                        locY = locY + Map.map.height
-                                    end
-                                    if locY > Map.map.height - Map.map.locOffsetY then
-                                        locY = locY - Map.map.height
-                                    end
-                                end
-                                if object.light.layer then
-                                    if Map.map.layers[object.light.layer].lighting[locX] and Map.map.layers[object.light.layer].lighting[locX][locY] then
-                                        Map.map.layers[object.light.layer].lighting[locX][locY][object.light.id] = nil
-                                        Map.map.lightToggle[locX][locY] = tonumber(system.getTimer())
-                                    end	
-                                end
-                            end			
-                            if object.toggleRemoveLight then
-                                object.light = nil
-                                object.toggleRemoveLight = false				
-                            end
-                        end
-                    end
-                end
-                
-                
-                if Sprites.movingSprites[object] and not Sprites.holdSprite then
-                    local index = Sprites.movingSprites[object]
-                    local velX = object.deltaX[index]
-                    local velY = object.deltaY[index]
-                    Sprites.movingSprites[object] = index - 1					
-                    object.levelPosX = object.levelPosX + velX
-                    object.levelPosY = object.levelPosY + velY					
-                    if Sprites.movingSprites[object] == 0 then
-                        Sprites.movingSprites[object] = nil
-                        object.deltaX = nil
-                        object.deltaY = nil
-                        object.isMoving = nil
-                        if object.onComplete then
-                            local temp = object.onComplete
-                            object.onComplete = nil
-                            local event = { name = "spriteMoveComplete", sprite = object}
-                            temp(event)
-                        end
-                    end
-                end
-                
-                if Sprites.holdSprite == object then
-                    if object.transition then
-                        transition.pause(object.transition)
-                    end
-                    object.paused = true
-                elseif object.transition then
-                    if object.paused then
-                        transition.resume(object.transition)
-                        object.paused = nil
-                    end
-                    if object.transition._transitionHasCompleted then
-                        object.transition = nil
-                    elseif object.transitionDelta then
-                        object.transitionDelta = object.transitionDelta - 1
-                    end
-                end
-                
-                --Update Position (ISO)
-                local isoPos = Map.isoTransform2(object.levelPosX, object.levelPosY)
-                object.x = isoPos[1]
-                object.y = isoPos[2]					
-                if Camera.layerWrapX[i] and (object.wrapX == nil or object.wrapX == true) then
-                    while object.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) do
-                        object.levelPosX = object.levelPosX + Map.map.layers[i].width * Map.map.tilewidth
-                    end
-                    while object.levelPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) do
-                        object.levelPosX = object.levelPosX - Map.map.layers[i].width * Map.map.tilewidth
-                    end						
-                    if cameraX - object.levelPosX < Map.map.layers[i].width * Map.map.tilewidth / -2 then
-                        --wrap around to the left
-                        local vector = M.isoVector(Map.map.layers[i].width * Map.map.tilewidth * -1, 0)
-                        object:translate(vector[1], vector[2])
-                    elseif cameraX - object.levelPosX > Map.map.layers[i].width * Map.map.tilewidth / 2 then
-                        --wrap around to the right
-                        local vector = M.isoVector(Map.map.layers[i].width * Map.map.tilewidth * 1, 0)
-                        object:translate(vector[1], vector[2])
-                    end
-                end					
-                if Camera.layerWrapY[i] and (object.wrapY == nil or object.wrapY == true) then
-                    while object.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
-                        object.levelPosY = object.levelPosY + Map.map.layers[i].height * Map.map.tileheight
-                    end
-                    while object.levelPosY > Map.map.layers[i].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) do
-                        object.levelPosY = object.levelPosY - Map.map.layers[i].height * Map.map.tileheight
-                    end						
-                    if cameraY - object.levelPosY < Map.map.layers[i].height * Map.map.tileheight / -2 then
-                        --wrap around to the left
-                        local vector = M.isoVector(0, Map.map.layers[i].height * Map.map.tileheight * -1)
-                        object:translate(vector[1], vector[2])
-                    elseif cameraY - object.levelPosY > Map.map.layers[i].height * Map.map.tileheight / 2 then
-                        --wrap around to the right
-                        local vector = M.isoVector(0, Map.map.layers[i].height * Map.map.tileheight * 1)
-                        object:translate(vector[1], vector[2])
-                    end
-                end
-                
-                --CONSTRAIN TO MAP (ISO)
-                if object.constrainToMap then
-                    local constraints = object.constrainToMap
-                    local pushX, pushY = 0, 0						
-                    if constraints[1] then
-                        if object.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
-                            pushX = 1 - (Map.map.locOffsetX * Map.map.tilewidth) - object.levelPosX
-                        end
-                    end
-                    if constraints[2] then
-                        if object.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) then
-                            pushY = 1 - (Map.map.locOffsetY * Map.map.tileheight) - object.levelPosY
-                        end
-                    end
-                    if constraints[3] then
-                        if object.levelPosX > (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth then
-                            pushX = (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth - object.levelPosX
-                        end
-                    end
-                    if constraints[4] then
-                        if object.levelPosY > (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight then
-                            pushY = (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight - object.levelPosY
-                        end
-                    end						
-                    object:translate(pushX, pushY)
-                end
-                
-                object.locX = math.ceil(object.levelPosX / Map.map.tilewidth)
-                object.locY = math.ceil(object.levelPosY / Map.map.tileheight)
-                
-                --Handle Offscreen Physics (ISO)
-                if PhysicsData.managePhysicsStates and (object.managePhysicsStates == nil or object.managePhysicsStates == true) then
-                    if object.bodyType and Map.masterGroup[i].vars.camera then
-                        if object.offscreenPhysics then
-                            local topLeftX, topLeftY = M.screenToLoc(object.contentBounds.xMin, object.contentBounds.yMin)
-                            local topRightX, topRightY = M.screenToLoc(object.contentBounds.xMax, object.contentBounds.yMin)
-                            local bottomLeftX, bottomLeftY = M.screenToLoc(object.contentBounds.xMin, object.contentBounds.yMax)
-                            local bottomRightX, bottomRightY = M.screenToLoc(object.contentBounds.xMax, object.contentBounds.yMax)							
-                            local left = topLeftX - 1
-                            local top = topRightY - 1
-                            local right = bottomRightX + 1
-                            local bottom = bottomLeftY + 1							
-                            if not object.bounds or (object.bounds[1] ~= left or object.bounds[2] ~= top or object.bounds[3] ~= right or object.bounds[4] ~= bottom) then
-                                if object.physicsRegion then
-                                    for p = 1, #object.physicsRegion, 1 do
-                                        local lx = object.physicsRegion[p][1]
-                                        local ly = object.physicsRegion[p][2]
-                                        if (lx < Map.masterGroup[i].vars.camera[1] or lx > Map.masterGroup[i].vars.camera[3]) or
-                                            (ly < Map.masterGroup[i].vars.camera[2] or ly > Map.masterGroup[i].vars.camera[4]) then
-                                            M.updateTile({locX = object.physicsRegion[p][1], locY = object.physicsRegion[p][2], layer = object.physicsRegion[p][3], tile = -1,
-                                                owner = object
-                                            })
-                                        end
-                                    end
-                                end
-                                object.physicsRegion = nil
-                                object.physicsRegion = {}
-                                for lx = left, right, 1 do
-                                    for ly = top, bottom, 1 do
-                                        for j = 1, #Map.map.layers, 1 do
-                                            if (lx < Map.masterGroup[j].vars.camera[1] or lx > Map.masterGroup[j].vars.camera[3]) or
-                                                (ly < Map.masterGroup[j].vars.camera[2] or ly > Map.masterGroup[j].vars.camera[4]) then
-                                                local owner = M.updateTile({locX = lx, locY = ly, layer = j, onlyPhysics = false, owner = object})
-                                                if owner then
-                                                    object.physicsRegion[#object.physicsRegion + 1] = {lx, ly, j}
-                                                end
-                                            end
-                                        end
-                                    end
-                                end
-                                object.bounds = {left, top, right, bottom}
-                            end
-                        else
-                            local locX = math.ceil(object.levelPosX / Map.map.tilewidth)
-                            local locY = math.ceil(object.levelPosY / Map.map.tilewidth)
-                            if (locX < Map.masterGroup[i].vars.camera[1] or locX > Map.masterGroup[i].vars.camera[3]) or
-                                (locY < Map.masterGroup[i].vars.camera[2] or locY > Map.masterGroup[i].vars.camera[4]) then
-                                if not object.properties or not object.properties.isBodyActive then
-                                    object.isBodyActive = false
-                                end
-                            elseif (locX <= Map.masterGroup[i].vars.camera[1] or locX >= Map.masterGroup[i].vars.camera[3]) or
-                                (locY <= Map.masterGroup[i].vars.camera[2] or locY >= Map.masterGroup[i].vars.camera[4]) then
-                                if not object.properties or not object.properties.isAwake then
-                                    object.isAwake = false
-                                end
-                                if not object.properties or not object.properties.isBodyActive then
-                                    object.isBodyActive = true
-                                end
-                            else
-                                if not object.properties or not object.properties.isAwake then
-                                    object.isAwake = true
-                                end
-                                if not object.properties or not object.properties.isBodyActive then
-                                    object.isBodyActive = true
-                                end
-                            end
-                        end
-                    end
-                end
-                
-                --Sort Sprites (ISO)
-                if object.locX >= 1 and object.locY >= 1 and not object.isMoving then
-                    if Map.isoSort == 1 then
-                        local temp = object.locX + object.locY - 1
-                        if temp > Map.map.height + Map.map.width then
-                            temp = Map.map.height + Map.map.width
-                        end
-                        if temp ~= object.row then
-                            Map.masterGroup[i][temp]:insert(object)
-                        end
-                    end
-                end
-                
-                --Apply Lighting to Non-Light Objects, Trigger Events (ISO)
-                if object.lighting then
-                    if M.enableLighting then
-                        object.litBy = {}
-                        local locX = object.locX
-                        local locY = object.locY
-                        local mapLayerFalloff = Map.map.properties.lightLayerFalloff
-                        local mapLevelFalloff = Map.map.properties.lightLevelFalloff
-                        local red, green, blue = Map.map.layers[i].redLight, Map.map.layers[i].greenLight, Map.map.layers[i].blueLight
-                        for k = 1, #Map.map.layers, 1 do
-                            if Map.map.layers[k].lighting[locX] then
-                                if Map.map.layers[k].lighting[locX][locY] then
-                                    local temp = Map.map.layers[k].lighting[locX][locY]
-                                    local tempSources = {}
-                                    for key,value in pairs(object.prevLitBy) do
-                                        tempSources[key] = true
-                                    end
-                                    for key,value in pairs(temp) do
-                                        local levelDiff = math.abs(M.getLevel(i) - Map.map.lights[key].level)
-                                        local layerDiff = math.abs(i - Map.map.lights[key].layer)							
-                                        local layerFalloff, levelFalloff
-                                        if Map.map.lights[key].layerFalloff then
-                                            layerFalloff = Map.map.lights[key].layerFalloff
-                                        else
-                                            layerFalloff = mapLayerFalloff
-                                        end							
-                                        if Map.map.lights[key].levelFalloff then
-                                            levelFalloff = Map.map.lights[key].levelFalloff
-                                        else
-                                            levelFalloff = mapLevelFalloff
-                                        end							
-                                        local tR = temp[key].light[1] - (levelDiff * levelFalloff[1]) - (layerDiff * layerFalloff[1])
-                                        local tG = temp[key].light[2] - (levelDiff * levelFalloff[2]) - (layerDiff * layerFalloff[2])
-                                        local tB = temp[key].light[3] - (levelDiff * levelFalloff[3]) - (layerDiff * layerFalloff[3])							
-                                        if object.lightingListeners[key] then
-                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
-                                            if not object.prevLitBy[key] then
-                                                object.prevLitBy[key] = true
-                                                event.phase = "began"
-                                            else
-                                                event.phase = "maintained"
-                                            end
-                                            object:dispatchEvent( event )
-                                            tempSources[key] = nil
-                                        end							
-                                        if tR > red then
-                                            red = tR
-                                        end
-                                        if tG > green then
-                                            green = tG
-                                        end
-                                        if tB > blue then
-                                            blue = tB
-                                        end							
-                                        object.litBy[#object.litBy + 1] = key							
-                                    end
-                                    for key,value in pairs(tempSources) do
-                                        if object.lightingListeners[key] then
-                                            object.prevLitBy[key] = nil
-                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
-                                            event.phase = "ended"
-                                            object:dispatchEvent( event )
-                                        end
-                                    end
-                                else						
-                                    for key,value in pairs(object.prevLitBy) do
-                                        if object.lightingListeners[key] and not Map.map.lights[key] then
-                                            object.prevLitBy[key] = nil
-                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
-                                            event.phase = "ended"
-                                            object:dispatchEvent( event )
-                                        elseif object.lightingListeners[key] and Map.map.lights[key].layer == k then
-                                            object.prevLitBy[key] = nil
-                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
-                                            event.phase = "ended"
-                                            object:dispatchEvent( event )
-                                        end
-                                    end						
-                                end
-                            end
-                        end
-                        if object.objType < 3 then
-                            object:setFillColor(red * object.color[1], green * object.color[2], blue * object.color[3])
-                        elseif object.objType == 3 then
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setFillColor(red * object[i].color[1], green * object[i].color[2], blue * object[i].color[3])
-                                end
-                            end
-                        elseif object.objType == 4 then
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setStrokeColor(red * object[i].color[1], green * object[i].color[2], blue * object[i].color[3])
-                                end
-                            end
-                        end
-                    else
-                        if object.objType < 3 then
-                            local mL = Map.map.layers[i]
-                            object:setFillColor(mL.redLight * object.color[1], mL.greenLight * object.color[2], mL.blueLight * object.color[3])
-                        elseif object.objType == 3 then
-                            local mL = Map.map.layers[i]
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setFillColor(mL.redLight * object[i].color[1], mL.greenLight * object[i].color[2], mL.blueLight * object[i].color[3])
-                                end
-                            end
-                        elseif object.objType == 4 then
-                            local mL = Map.map.layers[i]
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setStrokeColor(mL.redLight * object[i].color[1], mL.greenLight * object[i].color[2], mL.blueLight * object[i].color[3])
-                                end
-                            end
-                        end
-                    end
-                end
-                
-                --Cast Light (ISO)
-                if M.enableLighting and object.light then
-                    if Light.lightingData.refreshCounter == 1 then
-                        object.light.levelPosX = object.levelPosX
-                        object.light.levelPosY = object.levelPosY
-                    end					
-                    if Light.lightingData.refreshCounter == 1 then
-                        if object.levelPosX > 0 - (Map.map.locOffsetX * Map.map.tilewidth) and object.levelPosX <= (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth then
-                            if object.levelPosY > 0 - (Map.map.locOffsetY * Map.map.tileheight) and object.levelPosY <= (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight then
-                                if object.light.rays then
-                                    for k = 1, #object.light.rays, 1 do
-                                        Light.processLightRay(object.light.layer, object.light, object.light.rays[k])
-                                    end
-                                else								
-                                    Light.processLight(object.light.layer, object.light)									
-                                    local length = #object.light.area
-                                    local tempML = {}
-                                    local oLx = object.light.locX
-                                    local oLy = object.light.locY
-                                    local oLl = object.light.layer
-                                    local oLi = object.light.id
-                                    local mL = Map.map.layers
-                                    for i = length, 1, -1 do
-                                        local locX = object.light.area[i][1]
-                                        local locY = object.light.area[i][2]
-                                        local locXt = locX
-                                        local locYt = locY						
-                                        if Camera.worldWrapX then
-                                            if locX < 1 - Map.map.locOffsetX then
-                                                locX = locX + Map.map.width
-                                            end
-                                            if locX > Map.map.width - Map.map.locOffsetX then
-                                                locX = locX - Map.map.width
-                                            end
-                                        end
-                                        if Camera.worldWrapY then
-                                            if locY < 1 - Map.map.locOffsetY then
-                                                locY = locY + Map.map.height
-                                            end
-                                            if locY > Map.map.height - Map.map.locOffsetY then
-                                                locY = locY - Map.map.height
-                                            end
-                                        end						
-                                        local neighbor1 = {0, 0, 0}
-                                        local neighbor2 = {0, 0, 0}										
-                                        if locX ~= oLx and locY ~= oLy and Map.map.lightingData[mL[oLl].world[locX][locY]]then											
-                                            if locXt > oLx and locYt < oLy then
-                                                --top right
-                                                if oLl then
-                                                    if mL[oLl].lighting[locX - 1] and mL[oLl].lighting[locX][locY] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX - 1][locY]] then
-                                                            if mL[oLl].lighting[locX - 1][locY] then
-                                                                if mL[oLl].lighting[locX - 1][locY][oLi] then
-                                                                    neighbor1 = mL[oLl].lighting[locX - 1][locY][oLi].light
-                                                                    neighbor1[4] = locX - 1
-                                                                    neighbor1[5] = locY
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY + 1] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY + 1]] then
-                                                            if mL[oLl].lighting[locX][locY + 1] then
-                                                                if mL[oLl].lighting[locX][locY + 1][oLi] then
-                                                                    neighbor2 = mL[oLl].lighting[locX][locY + 1][oLi].light
-                                                                    neighbor2[4] = locX
-                                                                    neighbor2[5] = locY + 1
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                end
-                                            elseif locXt > oLx and locYt > oLy then
-                                                --bottom right
-                                                if oLl then
-                                                    if mL[oLl].lighting[locX - 1] and mL[oLl].lighting[locX][locY] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX - 1][locY]] then
-                                                            if mL[oLl].lighting[locX - 1][locY] then
-                                                                if mL[oLl].lighting[locX - 1][locY][oLi] then
-                                                                    neighbor1 = mL[oLl].lighting[locX - 1][locY][oLi].light
-                                                                    neighbor1[4] = locX - 1
-                                                                    neighbor1[5] = locY
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY - 1] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY - 1]] then
-                                                            if mL[oLl].lighting[locX][locY - 1] then
-                                                                if mL[oLl].lighting[locX][locY - 1][oLi] then
-                                                                    neighbor2 = mL[oLl].lighting[locX][locY - 1][oLi].light
-                                                                    neighbor2[4] = locX
-                                                                    neighbor2[5] = locY - 1
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                end
-                                            elseif locXt < oLx and locYt > oLy then
-                                                --bottom left
-                                                if oLl then
-                                                    if mL[oLl].lighting[locX + 1] and mL[oLl].lighting[locX][locY] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX + 1][locY]] then
-                                                            if mL[oLl].lighting[locX + 1][locY] then
-                                                                if mL[oLl].lighting[locX + 1][locY][oLi] then
-                                                                    neighbor1 = mL[oLl].lighting[locX + 1][locY][oLi].light
-                                                                    neighbor1[4] = locX + 1
-                                                                    neighbor1[5] = locY
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY - 1] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY - 1]] then
-                                                            if mL[oLl].lighting[locX][locY - 1] then
-                                                                if mL[oLl].lighting[locX][locY - 1][oLi] then
-                                                                    neighbor2 = mL[oLl].lighting[locX][locY - 1][oLi].light
-                                                                    neighbor2[4] = locX
-                                                                    neighbor2[5] = locY - 1
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                end
-                                            elseif locXt < oLx and locYt < oLy then
-                                                --top left
-                                                if oLl then
-                                                    if mL[oLl].lighting[locX + 1] and mL[oLl].lighting[locX][locY] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX + 1][locY]] then
-                                                            if mL[oLl].lighting[locX + 1][locY] then
-                                                                if mL[oLl].lighting[locX + 1][locY][oLi] then
-                                                                    neighbor1 = mL[oLl].lighting[locX + 1][locY][oLi].light
-                                                                    neighbor1[4] = locX + 1
-                                                                    neighbor1[5] = locY
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY + 1] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY + 1]] then
-                                                            if mL[oLl].lighting[locX][locY + 1] then
-                                                                if mL[oLl].lighting[locX][locY + 1][oLi] then
-                                                                    neighbor2 = mL[oLl].lighting[locX][locY + 1][oLi].light
-                                                                    neighbor2[4] = locX
-                                                                    neighbor2[5] = locY + 1
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                end
-                                            end						
-                                            local neighbor						
-                                            if neighbor1[1] + neighbor1[2] + neighbor1[3] > neighbor2[1] + neighbor2[2] + neighbor2[3] then
-                                                neighbor = neighbor1
-                                            else
-                                                neighbor = neighbor2
-                                            end							
-                                            if neighbor[1] + neighbor[2] + neighbor[3] > 0 then
-                                                if math.abs( (neighbor[1] + neighbor[2] + neighbor[3]) - (mL[oLl].lighting[locX][locY][oLi].light[1] +
-                                                    mL[oLl].lighting[locX][locY][oLi].light[2] + 
-                                                    mL[oLl].lighting[locX][locY][oLi].light[3]) ) > 
-                                                    (object.light.falloff[1] + object.light.falloff[2] + object.light.falloff[3]) * 1.5 then
-                                                    local distance = math.sqrt( ((locXt - oLx) * (locXt - oLx)) + 
-                                                    ((locYt - oLy) * (locYt - oLy))  )								
-                                                    local red = object.light.source[1] - (object.light.falloff[1] * distance)
-                                                    local green = object.light.source[2] - (object.light.falloff[2] * distance)
-                                                    local blue = object.light.source[3] - (object.light.falloff[3] * distance)
-                                                    tempML[#tempML + 1] = {locX, locY, red, green, blue}
-                                                end
-                                            end
-                                        end						
-                                    end					
-                                    for i = 1, #tempML, 1 do
-                                        mL[oLl].lighting[tempML[i][1]][tempML[i][2]][oLi].light = {tempML[i][3], 
-                                        tempML[i][4], tempML[i][5]}
-                                    end
-                                end
-                            end
-                        end				
-                    end	
-                    if object.lighting then
-                        if object.objType < 3 then
-                            local oL = object.light.source
-                            object:setFillColor(oL[1]*object.color[1], oL[2]*object.color[2], oL[3]*object.color[3])
-                        elseif object.objType == 3 then
-                            local oL = object.light.source
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setFillColor(oL[1]*object[i].color[1], oL[2]*object[i].color[2], oL[3]*object[i].color[3])
-                                end
-                            end
-                        elseif object.objType == 4 then
-                            local oL = object.light.source
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setStrokeColor(oL[1]*object[i].color[1], oL[2]*object[i].color[2], oL[3]*object[i].color[3])
-                                end
-                            end
-                        end
-                    end
-                end
-                ------
-            else
-                --Clear Lighting
-                if object.light then
-                    if not object.light.created then
-                        object.light.created = true
-                        if not object.light.id then
-                            object.light.id = Light.lightIDs
-                        end
-                        Light.lightIDs = Light.lightIDs + 1						
-                        if not object.light.maxRange then
-                            local maxRange = object.light.range[1]
-                            for l = 1, 3, 1 do
-                                if object.light.range[l] > maxRange then
-                                    maxRange = object.light.range[l]
-                                end
-                            end
-                            object.light.maxRange = maxRange
-                        end		
-                        if not object.light.levelPosX then
-                            object.light.levelPosX = object.levelPosX or object.x
-                            object.light.levelPosY = object.levelPosY or object.y
-                        end		
-                        if not object.light.alternatorCounter then
-                            object.light.alternatorCounter = 1
-                        end		
-                        if object.light.rays then
-                            object.light.areaIndex = 1
-                        end		
-                        if object.light.layerRelative then
-                            object.light.layer = i + object.light.layerRelative
-                            if object.light.layer < 1 then
-                                object.light.layer = 1
-                            end
-                            if object.light.layer > #Map.map.layers then
-                                object.light.layer = #Map.map.layers
-                            end
-                        end						
-                        if not object.light.layer then
-                            object.light.layer = i
-                        end						
-                        object.light.level = object.level
-                        object.light.dynamic = true
-                        object.light.area = {}
-                        Map.map.lights[object.light.id] = object.light
-                    else
-                        if Light.lightingData.refreshCounter == 1 then
-                            if object.light.rays then
-                                object.light.areaIndex = 1
-                            end			
-                            local length = #object.light.area
-                            for i = length, 1, -1 do
-                                local locX = object.light.area[i][1]
-                                local locY = object.light.area[i][2]
-                                object.light.area[i] = nil
-                                if Camera.worldWrapX then
-                                    if locX < 1 - Map.map.locOffsetX then
-                                        locX = locX + Map.map.width
-                                    end
-                                    if locX > Map.map.width - Map.map.locOffsetX then
-                                        locX = locX - Map.map.width
-                                    end
-                                end
-                                if Camera.worldWrapY then
-                                    if locY < 1 - Map.map.locOffsetY then
-                                        locY = locY + Map.map.height
-                                    end
-                                    if locY > Map.map.height - Map.map.locOffsetY then
-                                        locY = locY - Map.map.height
-                                    end
-                                end
-                                if object.light.layer then
-                                    if Map.map.layers[object.light.layer].lighting[locX] and Map.map.layers[object.light.layer].lighting[locX][locY] then
-                                        Map.map.layers[object.light.layer].lighting[locX][locY][object.light.id] = nil
-                                        Map.map.lightToggle[locX][locY] = tonumber(system.getTimer())
-                                    end	
-                                end
-                            end			
-                            if object.toggleRemoveLight then
-                                object.light = nil
-                                object.toggleRemoveLight = false				
-                            end
-                        end
-                    end
-                end
-                
-                
-                if Sprites.movingSprites[object] and not Sprites.holdSprite then
-                    local index = Sprites.movingSprites[object]
-                    local velX = object.deltaX[index]
-                    local velY = object.deltaY[index]
-                    Sprites.movingSprites[object] = index - 1						
-                    object:translate(velX, velY)						
-                    if Sprites.movingSprites[object] == 0 then
-                        Sprites.movingSprites[object] = nil
-                        object.deltaX = nil
-                        object.deltaY = nil
-                        object.isMoving = nil
-                        if object.onComplete then
-                            local temp = object.onComplete
-                            object.onComplete = nil
-                            local event = { name = "spriteMoveComplete", sprite = object}
-                            temp(event)
-                        end
-                    end
-                end
-                
-                if Sprites.holdSprite == object then
-                    if object.transition then
-                        transition.pause(object.transition)
-                    end
-                    object.paused = true
-                elseif object.transition then
-                    if object.paused then
-                        transition.resume(object.transition)
-                        object.paused = nil
-                    end
-                    if object.transition._transitionHasCompleted then
-                        object.transition = nil
-                    elseif object.transitionDelta then
-                        object.transitionDelta = object.transitionDelta - 1
-                    end
-                end
-                
-                --Update Position
-                object.levelPosX = object.x
-                object.levelPosY = object.y				
-                if Camera.layerWrapX[i] and (object.wrapX == nil or object.wrapX == true) then
-                    while object.levelPosX < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
-                        object.levelPosX = object.levelPosX + Map.map.layers[i].width * Map.map.tilewidth
-                    end
-                    while object.levelPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetY * Map.map.tileheight) do
-                        object.levelPosX = object.levelPosX - Map.map.layers[i].width * Map.map.tilewidth
-                    end				
-                    if cameraX - object.x < Map.map.layers[i].width * Map.map.tilewidth / -2 then
-                        --wrap around to the left
-                        object.x = object.x - Map.map.layers[i].width * Map.map.tilewidth
-                    elseif cameraX - object.x > Map.map.layers[i].width * Map.map.tilewidth / 2 then
-                        --wrap around to the right
-                        object.x = object.x + Map.map.layers[i].width * Map.map.tilewidth
-                    end
-                end
-                if Camera.layerWrapY[i] and (object.wrapY == nil or object.wrapY == true) then
-                    while object.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
-                        object.levelPosY = object.levelPosY + Map.map.layers[i].height * Map.map.tileheight
-                    end
-                    while object.levelPosY > Map.map.layers[i].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) do
-                        object.levelPosY = object.levelPosY - Map.map.layers[i].height * Map.map.tileheight
-                    end					
-                    if cameraY - object.y < Map.map.layers[i].height * Map.map.tileheight / -2 then
-                        --wrap around to the left
-                        object.y = object.y - Map.map.layers[i].height * Map.map.tileheight
-                    elseif cameraY - object.y > Map.map.layers[i].height * Map.map.tileheight / 2 then
-                        --wrap around to the right
-                        object.y = object.y + Map.map.layers[i].height * Map.map.tileheight
-                    end
-                end
-                
-                --CONSTRAIN TO MAP
-                if object.constrainToMap then
-                    local constraints = object.constrainToMap
-                    local pushX, pushY = 0, 0
-                    if constraints[1] then
-                        if object.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
-                            pushX = 1 - (Map.map.locOffsetX * Map.map.tilewidth) - object.levelPosX
-                        end
-                    end
-                    if constraints[2] then
-                        if object.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) then
-                            pushY = 1 - (Map.map.locOffsetY * Map.map.tileheight) - object.levelPosY
-                        end
-                    end
-                    if constraints[3] then
-                        if object.levelPosX > (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth then
-                            pushX = (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth - object.levelPosX
-                        end
-                    end
-                    if constraints[4] then
-                        if object.levelPosY > (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight then
-                            pushY = (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight - object.levelPosY
-                        end
-                    end
-                    object:translate(pushX, pushY)
-                end
-                
-                object.locX = math.ceil(object.levelPosX / Map.map.tilewidth)
-                object.locY = math.ceil(object.levelPosY / Map.map.tileheight)
-                
-                --Handle Offscreen Physics
-                --print(object.name, PhysicsData.managePhysicsStates, object.managePhysicsStates, object.managePhysicsStates)
-                if PhysicsData.managePhysicsStates and (object.managePhysicsStates == nil or object.managePhysicsStates == true) then
-                    if object.bodyType and Map.masterGroup[i].vars.camera then
-                        local tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMin, object.contentBounds.yMin)
-                        local leftTop = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
-                        tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMax, object.contentBounds.yMax)
-                        local rightBottom = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
-                        local left = math.ceil(leftTop[1] / Map.map.tilewidth) - 1
-                        local top = math.ceil(leftTop[2] / Map.map.tileheight) - 1
-                        local right = math.ceil(rightBottom[1] / Map.map.tilewidth) + 1
-                        local bottom = math.ceil(rightBottom[2] / Map.map.tileheight) + 1
-                        
-                        if object.bodyType ~= "static" then
-                            if object.bounds and object.physicsRegion and #object.physicsRegion > 0 then
-                                for p = #object.physicsRegion, 1, -1 do
-                                    local lx = object.physicsRegion[p][1]
-                                    local ly = object.physicsRegion[p][2]
-                                    local layer = object.physicsRegion[p][3]
-                                    if lx < object.bounds[1] or lx > object.bounds[3] or ly < object.bounds[2] or ly > object.bounds[4] then
-                                        if lx < Map.masterGroup[i].vars.camera[1] or lx > Map.masterGroup[i].vars.camera[3] or
-                                            ly < Map.masterGroup[i].vars.camera[2] or ly > Map.masterGroup[i].vars.camera[4] then
-                                            M.updateTile({locX = lx, locY = ly, layer = layer, tile = -1, owner = object})
-                                            --cullLargeTile(lx, ly, layer, nil, object)
-                                            table.remove(object.physicsRegion, p)
-                                        end
-                                    end
-                                    
-                                end
-                            else
-                                object.physicsRegion = {}
-                            end
-                            if not object.bounds or object.bounds[1] ~= left or object.bounds[2] ~= top or object.bounds[3] ~= right or object.bounds[4] ~= bottom then
-                                object.bounds = {left, top, right, bottom}
-                            end
-                            for lx = left, right, 1 do
-                                for ly = top, bottom, 1 do
-                                    for j = 1, #Map.map.layers, 1 do
-                                        if lx < 1 - Map.map.locOffsetX then
-                                            lx = lx + Map.map.layers[j].width
-                                        end
-                                        if lx > Map.map.layers[j].width - Map.map.locOffsetX then
-                                            lx = lx - Map.map.layers[j].width
-                                        end				
-                                        
-                                        if ly < 1 - Map.map.locOffsetY then
-                                            ly = ly + Map.map.layers[j].height
-                                        end
-                                        if ly > Map.map.layers[j].height - Map.map.locOffsetY then
-                                            ly = ly - Map.map.layers[j].height
-                                        end
-                                        if not Map.tileObjects[j][lx][ly] and Map.map.layers[j].world[lx][ly] ~= 0 then
-                                            local owner = M.updateTile({locX = lx, locY = ly, layer = j, onlyPhysics = true, owner = object})
-                                            if owner then
-                                                object.physicsRegion[#object.physicsRegion + 1] = {lx, ly, j}
-                                            end
-                                            
-                                        end
-                                        
-                                        local tX, tY = lx, ly
-                                        if tX < 1 - Map.map.locOffsetX then
-                                            tX = tX + Map.map.layers[j].width
-                                        end
-                                        if tX > Map.map.layers[j].width - Map.map.locOffsetX then
-                                            tX = tX - Map.map.layers[j].width
-                                        end				
-                                        
-                                        if tY < 1 - Map.map.locOffsetY then
-                                            tY = tY + Map.map.layers[j].height
-                                        end
-                                        if tY > Map.map.layers[j].height - Map.map.locOffsetY then
-                                            tY = tY - Map.map.layers[j].height
-                                        end
-                                        
-                                        if Map.map.layers[j].largeTiles[tX] and Map.map.layers[j].largeTiles[tX][tY] then
-                                            for i = 1, #Map.map.layers[j].largeTiles[tX][tY], 1 do
-                                                local frameIndex = Map.map.layers[j].largeTiles[tX][tY][i][1]
-                                                local ltx = Map.map.layers[j].largeTiles[tX][tY][i][2]
-                                                local lty = Map.map.layers[j].largeTiles[tX][tY][i][3]
-                                                
-                                                if not Map.tileObjects[j][ltx][lty] then
-                                                    local owner = M.updateTile({locX = ltx, locY = lty, layer = j, onlyPhysics = true, owner = object})
-                                                    if owner then
-                                                        object.physicsRegion[#object.physicsRegion + 1] = {ltx, lty, j}
-                                                    end
-                                                end
-                                            end
-                                        end
-                                        
-                                        drawCulledObjects(lx, ly, j)
-                                    end
-                                end
-                            end
-                        end
-                        if not object.offscreenPhysics then
-                            local tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMin, object.contentBounds.yMin)
-                            local leftTop = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
-                            tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMax, object.contentBounds.yMax)
-                            local rightBottom = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
-                            local left = math.ceil(leftTop[1] / Map.map.tilewidth)
-                            local top = math.ceil(leftTop[2] / Map.map.tileheight)
-                            local right = math.ceil(rightBottom[1] / Map.map.tilewidth)
-                            local bottom = math.ceil(rightBottom[2] / Map.map.tileheight)
-                            
-                            if left < Map.masterGroup[i].vars.camera[1] and right > Map.masterGroup[i].vars.camera[1] then
-                                left = Map.masterGroup[i].vars.camera[1]
-                            end
-                            if top < Map.masterGroup[i].vars.camera[2] and bottom > Map.masterGroup[i].vars.camera[2] then
-                                top = Map.masterGroup[i].vars.camera[2]
-                            end
-                            if right < Map.masterGroup[i].vars.camera[3] and left > Map.masterGroup[i].vars.camera[3] then
-                                right = Map.masterGroup[i].vars.camera[3]
-                            end
-                            if bottom > Map.masterGroup[i].vars.camera[4] and top < Map.masterGroup[i].vars.camera[4] then
-                                bottom = Map.masterGroup[i].vars.camera[4]
-                            end
-                            
-                            if (left >= Map.masterGroup[i].vars.camera[1] and left <= Map.masterGroup[i].vars.camera[3] and
-                                top >= Map.masterGroup[i].vars.camera[2] and top <= Map.masterGroup[i].vars.camera[4]) or
-                                
-                                (right >= Map.masterGroup[i].vars.camera[1] and right <= Map.masterGroup[i].vars.camera[3] and
-                                top >= Map.masterGroup[i].vars.camera[2] and top <= Map.masterGroup[i].vars.camera[4]) or
-                                
-                                (left >= Map.masterGroup[i].vars.camera[1] and left <= Map.masterGroup[i].vars.camera[3] and
-                                bottom >= Map.masterGroup[i].vars.camera[2] and bottom <= Map.masterGroup[i].vars.camera[4]) or
-                                
-                                (right >= Map.masterGroup[i].vars.camera[1] and right <= Map.masterGroup[i].vars.camera[3] and
-                                bottom >= Map.masterGroup[i].vars.camera[2] and bottom <= Map.masterGroup[i].vars.camera[4])then
-                                --onscreen
-                                if not object.properties or not object.properties.isAwake then
-                                    object.isAwake = true
-                                end
-                                if not object.properties or not object.properties.isBodyActive then
-                                    object.isBodyActive = true
-                                end
-                            elseif (left >= Map.masterGroup[i].vars.camera[1] - 1 and left <= Map.masterGroup[i].vars.camera[3] + 1 and
-                                top >= Map.masterGroup[i].vars.camera[2] - 1 and top <= Map.masterGroup[i].vars.camera[4] + 1) or
-                                
-                                (right >= Map.masterGroup[i].vars.camera[1] - 1 and right <= Map.masterGroup[i].vars.camera[3] + 1 and
-                                top >= Map.masterGroup[i].vars.camera[2] - 1 and top <= Map.masterGroup[i].vars.camera[4] + 1) or
-                                
-                                (left >= Map.masterGroup[i].vars.camera[1] - 1 and left <= Map.masterGroup[i].vars.camera[3] + 1 and
-                                bottom >= Map.masterGroup[i].vars.camera[2] - 1 and bottom <= Map.masterGroup[i].vars.camera[4] + 1) or
-                                
-                                (right >= Map.masterGroup[i].vars.camera[1] - 1 and right <= Map.masterGroup[i].vars.camera[3] + 1 and
-                                bottom >= Map.masterGroup[i].vars.camera[2] - 1 and bottom <= Map.masterGroup[i].vars.camera[4] + 1)then
-                                --edge
-                                if not object.properties or not object.properties.isAwake then
-                                    object.isAwake = false
-                                end
-                                if not object.properties or not object.properties.isBodyActive then
-                                    object.isBodyActive = true
-                                end
-                            else
-                                --offscreen
-                                if not object.properties or not object.properties.isBodyActive then
-                                    object.isBodyActive = false
-                                end
-                            end
-                            
-                            
-                        end
-                    end
-                end
-                
-                --Sort Sprites
-                if object.sortSprite and M.enableSpriteSorting then
-                    local adjustedPosition = object.levelPosY + ((Map.map.locOffsetY - 1) * Map.map.tileheight)
-                    
-                    --local tempY =math.ceil(math.round(object.levelPosY) / (Map.map.tileheight / Map.spriteSortResolution))	
-                    --print(object.levelPosY, adjustedPosition)		
-                    
-                    local tempY =math.ceil(math.round(adjustedPosition) / (Map.map.tileheight / Map.spriteSortResolution))	
-                    --print(tempY)
-                    if tempY > (Map.map.layers[i].height * Map.spriteSortResolution) then
-                        while tempY > Map.map.layers[i].height do
-                            tempY = tempY - (Map.map.layers[i].height * Map.spriteSortResolution)
-                        end
-                    elseif tempY < 1 then
-                        while tempY < 1 do
-                            tempY = tempY + (Map.map.layers[i].height * Map.spriteSortResolution)
-                        end
-                    end		
-                    if not object.depthBuffer or object.depthBuffer ~= tempY then
-                        if object.name == "player" then
-                            --print("this", object.name, tempY, Map.masterGroup[i][tempY])
-                        end
-                        for key,value in pairs( Map.masterGroup[i][2][tempY]) do
-                            --print(key,value)
-                        end
-                        --print(Map.masterGroup[i], Map.masterGroup[i][2], tempY, Map.masterGroup[i][2].numChildren)
-                        Map.masterGroup[i][2][tempY]:insert(object)
-                    end
-                    object.depthBuffer = tempY						
-                    if object.sortSpriteOnce then
-                        object.sortSprite = false
-                    end		
-                end
-                
-                --Apply HeightMap
-                if M.enableHeightMaps then
-                    if object.heightMap then
-                        if not object.nativeWidth then
-                            object.nativeWidth = object.width
-                            object.nativeHeight = object.height
-                        end
-                        local hM = object.heightMap
-                        local offsetX = object.nativeWidth / 2
-                        local offsetY = object.nativeHeight / 2
-                        local x = object.x
-                        local y = object.y
-                        local oP = object.path
-                        oP["x1"] = (((cameraX - (x - offsetX)) * (1 + (hM[1] or 0))) - (cameraX - (x - offsetX))) * -1
-                        oP["y1"] = (((cameraY - (y - offsetY)) * (1 + (hM[1] or 0))) - (cameraY - (y - offsetY))) * -1
-                        
-                        oP["x2"] = (((cameraX - (x - offsetX)) * (1 + (hM[2] or 0))) - (cameraX - (x - offsetX))) * -1
-                        oP["y2"] = (((cameraY - (y + offsetY)) * (1 + (hM[2] or 0))) - (cameraY - (y + offsetY))) * -1
-                        
-                        oP["x3"] = (((cameraX - (x + offsetX)) * (1 + (hM[3] or 0))) - (cameraX - (x + offsetX))) * -1
-                        oP["y3"] = (((cameraY - (y + offsetY)) * (1 + (hM[3] or 0))) - (cameraY - (y + offsetY))) * -1
-                        
-                        oP["x4"] = (((cameraX - (x + offsetX)) * (1 + (hM[4] or 0))) - (cameraX - (x + offsetX))) * -1
-                        oP["y4"] = (((cameraY - (y - offsetY)) * (1 + (hM[4] or 0))) - (cameraY - (y - offsetY))) * -1
-                    elseif (Map.map.layers[i].heightMap or Map.map.heightMap) and object.followHeightMap then
-                        if not object.nativeWidth then
-                            object.nativeWidth = object.width
-                            object.nativeHeight = object.height
-                        end							
-                        local mH
-                        if Map.map.heightMap then
-                            mH = Map.map.heightMap
-                        else
-                            mH = Map.map.layers[i].heightMap
-                        end							
-                        local offsetX = object.nativeWidth / 2 
-                        local offsetY = object.nativeHeight / 2 
-                        local x = object.x
-                        local y = object.y							
-                        local lX = object.levelPosX / Map.map.tilewidth
-                        local lY = object.levelPosY / Map.map.tileheight
-                        local toggleX = math.round(lX)
-                        local toggleY = math.round(lY)
-                        local locX1, locX2, locY1, locY2
-                        if toggleX < lX then
-                            locX2 = math.ceil(object.levelPosX / Map.map.tilewidth)
-                            locX1 = locX2 - 1
-                            if locX1 < 1 then
-                                locX1 = #mH
-                            end	
-                        else
-                            locX1 = math.ceil(object.levelPosX / Map.map.tilewidth)
-                            locX2 = locX1 + 1
-                            if locX2 > #mH then
-                                locX2 = 1
-                            end	
-                        end
-                        if toggleY < lY then
-                            locY2 = math.ceil(object.levelPosY / Map.map.tileheight)
-                            locY1 = locY2 - 1
-                            if locY1 < 1 then
-                                locY1 = #mH[1]
-                            end	
-                        else
-                            locY1 = math.ceil(object.levelPosY / Map.map.tileheight)
-                            locY2 = locY1 + 1
-                            if locY2 > #mH[1] then
-                                locY2 = 1
-                            end	
-                        end							
-                        local locX = object.locX
-                        local locY = object.locY							
-                        local tX1 = locX1 * Map.map.tilewidth - (Map.map.tilewidth / 2)
-                        local tY1 = locY1 * Map.map.tileheight - (Map.map.tileheight / 2)
-                        local tX2 = locX2 * Map.map.tilewidth - (Map.map.tilewidth / 2)
-                        local tY2 = locY2 * Map.map.tileheight - (Map.map.tileheight / 2)
-                        local area1 = (object.levelPosX - tX1) * (object.levelPosY - tY1)
-                        local area2 = (object.levelPosX - tX1) * (tY2 - object.levelPosY)
-                        local area3 = (tX2 - object.levelPosX) * (tY2 - object.levelPosY)
-                        local area4 = (tX2 - object.levelPosX) * (object.levelPosY - tY1)
-                        local area = Map.map.tilewidth * Map.map.tileheight							
-                        local height1 = mH[locX1][locY1] * ((area3) / area)
-                        local height2 = mH[locX1][locY2] * ((area4) / area)
-                        local height3 = mH[locX2][locY2] * ((area1) / area)
-                        local height4 = mH[locX2][locY1] * ((area2) / area)							
-                        local tempHeight = height1 + height2 + height3 + height4
-                        local oP = object.path
-                        oP["x1"] = (((cameraX - (x - offsetX)) * (1 + tempHeight)) - (cameraX - (x - offsetX))) * -1
-                        oP["y1"] = (((cameraY - (y - offsetY)) * (1 + tempHeight)) - (cameraY - (y - offsetY))) * -1
-                        
-                        oP["x2"] = (((cameraX - (x - offsetX)) * (1 + tempHeight)) - (cameraX - (x - offsetX))) * -1
-                        oP["y2"] = (((cameraY - (y + offsetY)) * (1 + tempHeight)) - (cameraY - (y + offsetY))) * -1
-                        
-                        oP["x3"] = (((cameraX - (x + offsetX)) * (1 + tempHeight)) - (cameraX - (x + offsetX))) * -1
-                        oP["y3"] = (((cameraY - (y + offsetY)) * (1 + tempHeight)) - (cameraY - (y + offsetY))) * -1
-                        
-                        oP["x4"] = (((cameraX - (x + offsetX)) * (1 + tempHeight)) - (cameraX - (x + offsetX))) * -1
-                        oP["y4"] = (((cameraY - (y - offsetY)) * (1 + tempHeight)) - (cameraY - (y - offsetY))) * -1							
-                    end
-                end
-                
-                --Apply Lighting to Non-Light Objects, Trigger Events
-                if object.lighting then
-                    if M.enableLighting then
-                        object.litBy = {}
-                        local locX = object.locX
-                        local locY = object.locY
-                        local mapLayerFalloff = Map.map.properties.lightLayerFalloff
-                        local mapLevelFalloff = Map.map.properties.lightLevelFalloff
-                        local red, green, blue = Map.map.layers[i].redLight, Map.map.layers[i].greenLight, Map.map.layers[i].blueLight
-                        if Map.map.perlinLighting then
-                            red = red * map.perlinLighting[locX][locY]
-                            green = green * map.perlinLighting[locX][locY]
-                            blue = blue * map.perlinLighting[locX][locY]
-                        elseif Map.map.layers[i].perlinLighting then
-                            red = red * map.layers[i].perlinLighting[locX][locY]
-                            green = green * map.layers[i].perlinLighting[locX][locY]
-                            blue = blue * map.layers[i].perlinLighting[locX][locY]
-                        end                        
-                        for k = 1, #Map.map.layers, 1 do
-                            if Map.map.layers[k].lighting[locX] then
-                                if Map.map.layers[k].lighting[locX][locY] then
-                                    local temp = Map.map.layers[k].lighting[locX][locY]
-                                    local tempSources = {}
-                                    for key,value in pairs(object.prevLitBy) do
-                                        tempSources[key] = true
-                                    end
-                                    for key,value in pairs(temp) do
-                                        local levelDiff = math.abs(M.getLevel(i) - Map.map.lights[key].level)
-                                        local layerDiff = math.abs(i - Map.map.lights[key].layer)							
-                                        local layerFalloff, levelFalloff
-                                        if Map.map.lights[key].layerFalloff then
-                                            layerFalloff = Map.map.lights[key].layerFalloff
-                                        else
-                                            layerFalloff = mapLayerFalloff
-                                        end							
-                                        if Map.map.lights[key].levelFalloff then
-                                            levelFalloff = Map.map.lights[key].levelFalloff
-                                        else
-                                            levelFalloff = mapLevelFalloff
-                                        end							
-                                        local tR = temp[key].light[1] - (levelDiff * levelFalloff[1]) - (layerDiff * layerFalloff[1])
-                                        local tG = temp[key].light[2] - (levelDiff * levelFalloff[2]) - (layerDiff * layerFalloff[2])
-                                        local tB = temp[key].light[3] - (levelDiff * levelFalloff[3]) - (layerDiff * layerFalloff[3])							
-                                        if object.lightingListeners[key] then
-                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
-                                            if not object.prevLitBy[key] then
-                                                object.prevLitBy[key] = true
-                                                event.phase = "began"
-                                            else
-                                                event.phase = "maintained"
-                                            end
-                                            object:dispatchEvent( event )
-                                            tempSources[key] = nil
-                                        end							
-                                        if tR > red then
-                                            red = tR
-                                        end
-                                        if tG > green then
-                                            green = tG
-                                        end
-                                        if tB > blue then
-                                            blue = tB
-                                        end							
-                                        object.litBy[#object.litBy + 1] = key							
-                                    end
-                                    for key,value in pairs(tempSources) do
-                                        if object.lightingListeners[key] then
-                                            object.prevLitBy[key] = nil
-                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
-                                            event.phase = "ended"
-                                            object:dispatchEvent( event )
-                                        end
-                                    end
-                                else						
-                                    for key,value in pairs(object.prevLitBy) do
-                                        if object.lightingListeners[key] and not Map.map.lights[key] then
-                                            object.prevLitBy[key] = nil
-                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
-                                            event.phase = "ended"
-                                            object:dispatchEvent( event )
-                                        elseif object.lightingListeners[key] and Map.map.lights[key].layer == k then
-                                            object.prevLitBy[key] = nil
-                                            local event = { name = key, target = object, source = Map.map.lights[key], light = {tR, tG, tB}}
-                                            event.phase = "ended"
-                                            object:dispatchEvent( event )
-                                        end
-                                    end						
-                                end
-                            end
-                        end
-                        if object.objType < 3 then
-                            object:setFillColor(red*object.color[1], green*object.color[2], blue*object.color[3])
-                        elseif object.objType == 3 then
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setFillColor(red*object[i].color[1], green*object[i].color[2], blue*object[i].color[3])
-                                end
-                            end
-                        elseif object.objType == 4 then
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setStrokeColor(red*object[i].color[1], green*object[i].color[2], blue*object[i].color[3])
-                                end
-                            end
-                        end
-                    else
-                        local locX = object.locX
-                        local locY = object.locY
-                        local red, green, blue = Map.map.layers[i].redLight, Map.map.layers[i].greenLight, Map.map.layers[i].blueLight
-                        if Map.map.perlinLighting then
-                            local perlinLightValue = Map.map.perlinLighting[locX][locY]
-                            red = red * perlinLightValue
-                            green = green * perlinLightValue
-                            blue = blue * perlinLightValue
-                        elseif Map.map.layers[i].perlinLighting then
-                            local perlinLightValue = Map.map.layers[i].perlinLighting[locX][locY]
-                            red = red * perlinLightValue
-                            green = green * perlinLightValue
-                            blue = blue * perlinLightValue
-                        end
-                        if object.objType < 3 then
-                            object:setFillColor(red*object.color[1], green*object.color[2], blue*object.color[3])
-                        elseif object.objType == 3 then
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setFillColor(red*object[i].color[1], green*object[i].color[2], blue*object[i].color[3])
-                                end
-                            end
-                        elseif object.objType == 4 then
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setStrokeColor(red*object[i].color[1], green*object[i].color[2], blue*object[i].color[3])
-                                end
-                            end
-                        end
-                    end
-                end
-                
-                --Cast Light
-                if M.enableLighting and object.light then
-                    if Light.lightingData.refreshCounter == 1 then
-                        object.light.levelPosX = object.levelPosX
-                        object.light.levelPosY = object.levelPosY
-                    end					
-                    if Light.lightingData.refreshCounter == 1 then
-                        if object.levelPosX > 0 - (Map.map.locOffsetX * Map.map.tilewidth) and object.levelPosX <= (Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth then
-                            if object.levelPosY > 0 - (Map.map.locOffsetY * Map.map.tileheight) and object.levelPosY <= (Map.map.height - Map.map.locOffsetY) * Map.map.tileheight then
-                                if object.light.rays then
-                                    for k = 1, #object.light.rays, 1 do
-                                        Light.processLightRay(object.light.layer, object.light, object.light.rays[k])
-                                    end
-                                else								
-                                    Light.processLight(object.light.layer, object.light)									
-                                    local length = #object.light.area
-                                    local tempML = {}
-                                    local oLx = object.light.locX
-                                    local oLy = object.light.locY
-                                    local oLl = object.light.layer
-                                    local oLi = object.light.id
-                                    local mL = Map.map.layers
-                                    for i = length, 1, -1 do
-                                        local locX = object.light.area[i][1]
-                                        local locY = object.light.area[i][2]
-                                        local locXt = locX
-                                        local locYt = locY						
-                                        if Camera.worldWrapX then
-                                            if locX < 1 - Map.map.locOffsetX then
-                                                locX = locX + Map.map.width
-                                            end
-                                            if locX > Map.map.width - Map.map.locOffsetX then
-                                                locX = locX - Map.map.width
-                                            end
-                                        end
-                                        if Camera.worldWrapY then
-                                            if locY < 1 - Map.map.locOffsetY then
-                                                locY = locY + Map.map.height
-                                            end
-                                            if locY > Map.map.height - Map.map.locOffsetY then
-                                                locY = locY - Map.map.height
-                                            end
-                                        end						
-                                        local neighbor1 = {0, 0, 0}
-                                        local neighbor2 = {0, 0, 0}										
-                                        if locX ~= oLx and locY ~= oLy and Map.map.lightingData[mL[oLl].world[locX][locY]]then											
-                                            if locXt > oLx and locYt < oLy then
-                                                --top right
-                                                if oLl then
-                                                    if mL[oLl].lighting[locX - 1] and mL[oLl].lighting[locX][locY] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX - 1][locY]] then
-                                                            if mL[oLl].lighting[locX - 1][locY] then
-                                                                if mL[oLl].lighting[locX - 1][locY][oLi] then
-                                                                    neighbor1 = mL[oLl].lighting[locX - 1][locY][oLi].light
-                                                                    neighbor1[4] = locX - 1
-                                                                    neighbor1[5] = locY
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY + 1] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY + 1]] then
-                                                            if mL[oLl].lighting[locX][locY + 1] then
-                                                                if mL[oLl].lighting[locX][locY + 1][oLi] then
-                                                                    neighbor2 = mL[oLl].lighting[locX][locY + 1][oLi].light
-                                                                    neighbor2[4] = locX
-                                                                    neighbor2[5] = locY + 1
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                end
-                                            elseif locXt > oLx and locYt > oLy then
-                                                --bottom right
-                                                if oLl then
-                                                    if mL[oLl].lighting[locX - 1] and mL[oLl].lighting[locX][locY] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX - 1][locY]] then
-                                                            if mL[oLl].lighting[locX - 1][locY] then
-                                                                if mL[oLl].lighting[locX - 1][locY][oLi] then
-                                                                    neighbor1 = mL[oLl].lighting[locX - 1][locY][oLi].light
-                                                                    neighbor1[4] = locX - 1
-                                                                    neighbor1[5] = locY
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY - 1] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY - 1]] then
-                                                            if mL[oLl].lighting[locX][locY - 1] then
-                                                                if mL[oLl].lighting[locX][locY - 1][oLi] then
-                                                                    neighbor2 = mL[oLl].lighting[locX][locY - 1][oLi].light
-                                                                    neighbor2[4] = locX
-                                                                    neighbor2[5] = locY - 1
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                end
-                                            elseif locXt < oLx and locYt > oLy then
-                                                --bottom left
-                                                if oLl then
-                                                    if mL[oLl].lighting[locX + 1] and mL[oLl].lighting[locX][locY] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX + 1][locY]] then
-                                                            if mL[oLl].lighting[locX + 1][locY] then
-                                                                if mL[oLl].lighting[locX + 1][locY][oLi] then
-                                                                    neighbor1 = mL[oLl].lighting[locX + 1][locY][oLi].light
-                                                                    neighbor1[4] = locX + 1
-                                                                    neighbor1[5] = locY
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY - 1] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY - 1]] then
-                                                            if mL[oLl].lighting[locX][locY - 1] then
-                                                                if mL[oLl].lighting[locX][locY - 1][oLi] then
-                                                                    neighbor2 = mL[oLl].lighting[locX][locY - 1][oLi].light
-                                                                    neighbor2[4] = locX
-                                                                    neighbor2[5] = locY - 1
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                end
-                                            elseif locXt < oLx and locYt < oLy then
-                                                --top left
-                                                if oLl then
-                                                    if mL[oLl].lighting[locX + 1] and mL[oLl].lighting[locX][locY] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX + 1][locY]] then
-                                                            if mL[oLl].lighting[locX + 1][locY] then
-                                                                if mL[oLl].lighting[locX + 1][locY][oLi] then
-                                                                    neighbor1 = mL[oLl].lighting[locX + 1][locY][oLi].light
-                                                                    neighbor1[4] = locX + 1
-                                                                    neighbor1[5] = locY
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                    if mL[oLl].lighting[locX] and mL[oLl].lighting[locX][locY + 1] then
-                                                        if not Map.map.lightingData[mL[oLl].world[locX][locY + 1]] then
-                                                            if mL[oLl].lighting[locX][locY + 1] then
-                                                                if mL[oLl].lighting[locX][locY + 1][oLi] then
-                                                                    neighbor2 = mL[oLl].lighting[locX][locY + 1][oLi].light
-                                                                    neighbor2[4] = locX
-                                                                    neighbor2[5] = locY + 1
-                                                                end
-                                                            end
-                                                        end
-                                                    end	
-                                                end
-                                            end						
-                                            local neighbor						
-                                            if neighbor1[1] + neighbor1[2] + neighbor1[3] > neighbor2[1] + neighbor2[2] + neighbor2[3] then
-                                                neighbor = neighbor1
-                                            else
-                                                neighbor = neighbor2
-                                            end							
-                                            if neighbor[1] + neighbor[2] + neighbor[3] > 0 then
-                                                if math.abs( (neighbor[1] + neighbor[2] + neighbor[3]) - (mL[oLl].lighting[locX][locY][oLi].light[1] +
-                                                    mL[oLl].lighting[locX][locY][oLi].light[2] + 
-                                                    mL[oLl].lighting[locX][locY][oLi].light[3]) ) > 
-                                                    (object.light.falloff[1] + object.light.falloff[2] + object.light.falloff[3]) * 1.5 then
-                                                    local distance = math.sqrt( ((locXt - oLx) * (locXt - oLx)) + 
-                                                    ((locYt - oLy) * (locYt - oLy))  ) 									
-                                                    local red = object.light.source[1] - (object.light.falloff[1] * distance)
-                                                    local green = object.light.source[2] - (object.light.falloff[2] * distance)
-                                                    local blue = object.light.source[3] - (object.light.falloff[3] * distance)
-                                                    tempML[#tempML + 1] = {locX, locY, red, green, blue}
-                                                end
-                                            end
-                                        end						
-                                    end					
-                                    for i = 1, #tempML, 1 do
-                                        mL[oLl].lighting[tempML[i][1]][tempML[i][2]][oLi].light = {tempML[i][3], 
-                                        tempML[i][4], tempML[i][5]}
-                                    end
-                                end
-                            end
-                        end				
-                    end	
-                    if object.lighting then
-                        if object.objType < 3 then
-                            local oL = object.light.source
-                            object:setFillColor(oL[1]*object.color[1], oL[2]*object.color[2], oL[3]*object.color[3])
-                        elseif object.objType == 3 then
-                            local oL = object.light.source
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setFillColor(oL[1]*object[i].color[1], oL[2]*object[i].color[2], oL[3]*object[i].color[3])
-                                end
-                            end
-                        elseif object.objType == 4 then
-                            local oL = object.light.source
-                            for i = 1, object.numChildren, 1 do
-                                if object[i]._class then
-                                    object[i]:setStrokeColor(oL[1]*object[i].color[1], oL[2]*object[i].color[2], oL[3]*object[i].color[3])
-                                end
-                            end
-                        end
-                    end
-                end
-                
-                --Cull Object
-                if Map.masterGroup[i].vars.camera and object.objectKey and ((object.properties and object.properties.cull == "true") or (Map.map.layers[i].properties and Map.map.layers[i].properties.cullObjects == "true")) then
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMin, object.contentBounds.yMin)
-                    local leftTop = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
-                    tempX, tempY = Map.masterGroup.parent:localToContent(object.contentBounds.xMax, object.contentBounds.yMax)
-                    local rightBottom = {Map.masterGroup[i]:contentToLocal(tempX, tempY)}							
-                    local tleft = math.ceil(leftTop[1] / Map.map.tilewidth)
-                    local ttop = math.ceil(leftTop[2] / Map.map.tileheight)
-                    local tright = math.ceil(rightBottom[1] / Map.map.tilewidth)
-                    local tbottom = math.ceil(rightBottom[2] / Map.map.tileheight)
-                    
-                    local left, top, right, bottom = tleft, ttop, tright, tbottom
-                    if tleft < Map.masterGroup[i].vars.camera[1] and tright > Map.masterGroup[i].vars.camera[1] then
-                        left = Map.masterGroup[i].vars.camera[1]
-                    end
-                    if ttop < Map.masterGroup[i].vars.camera[2] and tbottom > Map.masterGroup[i].vars.camera[2] then
-                        top = Map.masterGroup[i].vars.camera[2]
-                    end
-                    if tright < Map.masterGroup[i].vars.camera[3] and tleft > Map.masterGroup[i].vars.camera[3] then
-                        right = Map.masterGroup[i].vars.camera[3]
-                    end
-                    if tbottom > Map.masterGroup[i].vars.camera[4] and ttop < Map.masterGroup[i].vars.camera[4] then
-                        bottom = Map.masterGroup[i].vars.camera[4]
-                    end
-                    
-                    if (left >= Map.masterGroup[i].vars.camera[1] and left <= Map.masterGroup[i].vars.camera[3] and
-                        top >= Map.masterGroup[i].vars.camera[2] and top <= Map.masterGroup[i].vars.camera[4]) or
-                        
-                        (right >= Map.masterGroup[i].vars.camera[1] and right <= Map.masterGroup[i].vars.camera[3] and
-                        top >= Map.masterGroup[i].vars.camera[2] and top <= Map.masterGroup[i].vars.camera[4]) or
-                        
-                        (left >= Map.masterGroup[i].vars.camera[1] and left <= Map.masterGroup[i].vars.camera[3] and
-                        bottom >= Map.masterGroup[i].vars.camera[2] and bottom <= Map.masterGroup[i].vars.camera[4]) or
-                        
-                        (right >= Map.masterGroup[i].vars.camera[1] and right <= Map.masterGroup[i].vars.camera[3] and
-                        bottom >= Map.masterGroup[i].vars.camera[2] and bottom <= Map.masterGroup[i].vars.camera[4])then
-                        --onscreen
-                        
-                    elseif (left >= Map.masterGroup[i].vars.camera[1] - 1 and left <= Map.masterGroup[i].vars.camera[3] + 1 and
-                        top >= Map.masterGroup[i].vars.camera[2] - 1 and top <= Map.masterGroup[i].vars.camera[4] + 1) or
-                        
-                        (right >= Map.masterGroup[i].vars.camera[1] - 1 and right <= Map.masterGroup[i].vars.camera[3] + 1 and
-                        top >= Map.masterGroup[i].vars.camera[2] - 1 and top <= Map.masterGroup[i].vars.camera[4] + 1) or
-                        
-                        (left >= Map.masterGroup[i].vars.camera[1] - 1 and left <= Map.masterGroup[i].vars.camera[3] + 1 and
-                        bottom >= Map.masterGroup[i].vars.camera[2] - 1 and bottom <= Map.masterGroup[i].vars.camera[4] + 1) or
-                        
-                        (right >= Map.masterGroup[i].vars.camera[1] - 1 and right <= Map.masterGroup[i].vars.camera[3] + 1 and
-                        bottom >= Map.masterGroup[i].vars.camera[2] - 1 and bottom <= Map.masterGroup[i].vars.camera[4] + 1)then
-                        --edge
-                    else
-                        --offscreen
-                        --Sprites.sprites[spriteName].objectKey = ky
-                        --Sprites.sprites[spriteName].objectLayer = layer
-                        
-                        local tiledObject = Map.map.layers[i].objects[object.objectKey]
-                        tiledObject.cullData = {object.x, object.y, object.width, object.height, object.rotation}
-                        tiledObject.properties.wasDrawn = false
-                        
-                        if object.physicsRegion and #object.physicsRegion > 0 then
-                            for p = #object.physicsRegion, 1, -1 do
-                                local lx = object.physicsRegion[p][1]
-                                local ly = object.physicsRegion[p][2]
-                                local layer = object.physicsRegion[p][3]
-                                M.updateTile({locX = lx, locY = ly, layer = layer, tile = -1, owner = object})
-                                table.remove(object.physicsRegion, p)							
-                            end
-                        end
-                        
-                        local mL = Map.map.layers[object.objectLayer]
-                        
-                        tiledObject.cullData[6] = {}
-                        for x = tleft, tright, 1 do
-                            for y = ttop, tbottom, 1 do
-                                if not mL.extendedObjects[x][y] then
-                                    mL.extendedObjects[x][y] = {}
-                                end
-                                
-                                mL.extendedObjects[x][y][#mL.extendedObjects[x][y] + 1] = {object.objectLayer, object.objectKey}
-                                tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {x, y, #mL.extendedObjects[x][y]}
-                                
-                            end
-                        end
-                        
-                        if bob and tright - tleft < Map.masterGroup[i].vars.camera[3] - Map.masterGroup[i].vars.camera[1] then
-                            if tbottom - ttop < Map.masterGroup[i].vars.camera[4] - Map.masterGroup[i].vars.camera[2] then
-                                --four corners
-                                --print(tleft, ttop, tright, tbottom)
-                                if not mL.extendedObjects[tleft][ttop] then
-                                    mL.extendedObjects[tleft][ttop] = {}
-                                end
-                                if not mL.extendedObjects[tright][ttop] then
-                                    mL.extendedObjects[tright][ttop] = {}
-                                end
-                                if not mL.extendedObjects[tleft][tbottom] then
-                                    mL.extendedObjects[tleft][tbottom] = {}
-                                end
-                                if not mL.extendedObjects[tright][tbottom] then
-                                    mL.extendedObjects[tright][tbottom] = {}
-                                end
-                                
-                                mL.extendedObjects[tleft][ttop][#mL.extendedObjects[tleft][ttop] + 1] = {object.objectLayer, object.objectKey}
-                                mL.extendedObjects[tright][ttop][#mL.extendedObjects[tright][ttop] + 1] = {object.objectLayer, object.objectKey}
-                                mL.extendedObjects[tleft][tbottom][#mL.extendedObjects[tleft][tbottom] + 1] = {object.objectLayer, object.objectKey}
-                                mL.extendedObjects[tright][tbottom][#mL.extendedObjects[tright][tbottom] + 1] = {object.objectLayer, object.objectKey}
-                                
-                                tiledObject.cullData[6] = {
-                                    {tleft, ttop, #mL.extendedObjects[tleft][ttop]},
-                                    {tright, ttop, #mL.extendedObjects[tright][ttop]},
-                                    {tleft, tbottom, #mL.extendedObjects[tleft][tbottom]},
-                                    {tright, tbottom, #mL.extendedObjects[tright][tbottom]}
-                                }
-                                
-                                if q then
-                                    tiledObject.cullData[6] = {
-                                        mL.extendedObjects[tleft][ttop][#mL.extendedObjects[tleft][ttop]],
-                                        mL.extendedObjects[tright][ttop][#mL.extendedObjects[tright][ttop]],
-                                        mL.extendedObjects[tleft][tbottom][#mL.extendedObjects[tleft][tbottom]],
-                                        mL.extendedObjects[tright][tbottom][#mL.extendedObjects[tright][tbottom]]
-                                    }
-                                end
-                            else
-                                --double columns
-                                tiledObject.cullData[6] = {}
-                                
-                                for y = ttop, tbottom, 1 do
-                                    if not mL.extendedObjects[tleft][y] then
-                                        mL.extendedObjects[tleft][y] = {}
-                                    end
-                                    if not mL.extendedObjects[tright][y] then
-                                        mL.extendedObjects[tright][y] = {}
-                                    end
-                                    
-                                    mL.extendedObjects[tleft][y][#mL.extendedObjects[tleft][y] + 1] = {object.objectLayer, object.objectKey}
-                                    mL.extendedObjects[tright][y][#mL.extendedObjects[tright][y] + 1] = {object.objectLayer, object.objectKey}
-                                    
-                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {tleft, y, #mL.extendedObjects[tleft][y]}
-                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {tright, y, #mL.extendedObjects[tright][y]}
-                                    
-                                    if q then
-                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[tleft][y][#mL.extendedObjects[tleft][y]]
-                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[tright][y][#mL.extendedObjects[tright][y]]
-                                    end
-                                end
-                            end
-                        elseif bob then
-                            if tbottom - ttop < Map.masterGroup[i].vars.camera[4] - Map.masterGroup[i].vars.camera[2] then
-                                --double rows
-                                tiledObject.cullData[6] = {}
-                                
-                                for x = tleft, tright, 1 do
-                                    if not mL.extendedObjects[x][ttop] then
-                                        mL.extendedObjects[x][ttop] = {}
-                                    end
-                                    if not mL.extendedObjects[x][tbottom] then
-                                        mL.extendedObjects[x][tbottom] = {}
-                                    end
-                                    
-                                    mL.extendedObjects[x][ttop][#mL.extendedObjects[x][ttop] + 1] = {object.objectLayer, object.objectKey}
-                                    mL.extendedObjects[x][tbottom][#mL.extendedObjects[x][tbottom] + 1] = {object.objectLayer, object.objectKey}
-                                    
-                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {x, ttop, #mL.extendedObjects[x][ttop]}
-                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {x, tbottom, #mL.extendedObjects[x][tbottom]}
-                                    
-                                    if q then
-                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[x][ttop][#mL.extendedObjects[x][ttop]]
-                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[x][tbottom][#mL.extendedObjects[x][tbottom]]
-                                    end
-                                end
-                            else
-                                --rows and columns
-                                tiledObject.cullData[6] = {}
-                                
-                                for x = tleft, tright, 1 do
-                                    if not mL.extendedObjects[x][ttop] then
-                                        mL.extendedObjects[x][ttop] = {}
-                                    end
-                                    if not mL.extendedObjects[x][tbottom] then
-                                        mL.extendedObjects[x][tbottom] = {}
-                                    end
-                                    
-                                    mL.extendedObjects[x][ttop][#mL.extendedObjects[x][ttop] + 1] = {object.objectLayer, object.objectKey}
-                                    mL.extendedObjects[x][tbottom][#mL.extendedObjects[x][tbottom] + 1] = {object.objectLayer, object.objectKey}
-                                    
-                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {x, ttop, #mL.extendedObjects[x][ttop]}
-                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {x, tbottom, #mL.extendedObjects[x][tbottom]}
-                                    
-                                    if q then
-                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[x][ttop][#mL.extendedObjects[x][ttop]]
-                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[x][tbottom][#mL.extendedObjects[x][tbottom]]
-                                    end
-                                end
-                                
-                                for y = ttop - 1, tbottom + 1, 1 do
-                                    if not mL.extendedObjects[tleft][y] then
-                                        mL.extendedObjects[tleft][y] = {}
-                                    end
-                                    if not mL.extendedObjects[tright][y] then
-                                        mL.extendedObjects[tright][y] = {}
-                                    end
-                                    
-                                    mL.extendedObjects[tleft][y][#mL.extendedObjects[tleft][y] + 1] = {object.objectLayer, object.objectKey}
-                                    mL.extendedObjects[tright][y][#mL.extendedObjects[tright][y] + 1] = {object.objectLayer, object.objectKey}
-                                    
-                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {tleft, y, #mL.extendedObjects[tleft][y]}
-                                    tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = {tright, y, #mL.extendedObjects[tright][y]}
-                                    
-                                    if q then
-                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[tleft][y][#mL.extendedObjects[tleft][y]]
-                                        tiledObject.cullData[6][#tiledObject.cullData[6] + 1] = mL.extendedObjects[tright][y][#mL.extendedObjects[tright][y]]
-                                    end
-                                end
-                            end
-                        end
-                        
-                        M.M.removeSprite(object)
-                    end
-                end
-                ------
-            end
-        end
-        
-        for i = 1, #Map.map.layers, 1 do	
-            if Map.map.orientation == Map.Type.Isometric then
-                for j = Map.masterGroup[i].numChildren, 1, -1 do
-                    if Map.masterGroup[i][j].numChildren then
-                        for k = Map.masterGroup[i][j].numChildren, 1, -1 do
-                            if not Map.masterGroup[i][j][k].tiles then
-                                local object = Map.masterGroup[i][j][k]
-                                if object then
-                                    processObject(object, i)
-                                end
-                            end
-                        end
-                    end
-                end
-            else
-                for j = Map.masterGroup[i].numChildren, 1, -1 do
-                    if not Map.masterGroup[i][j].tiles then
-                        if Map.masterGroup[i][j].depthBuffer then
-                            for k = 1, Map.masterGroup[i][j].numChildren, 1 do
-                                for m = 1, Map.masterGroup[i][j][k].numChildren, 1 do
-                                    local object = Map.masterGroup[i][j][k][m]
-                                    if object then
-                                        processObject(object, i)
-                                    end
-                                end
-                            end
-                        else
-                            local object = Map.masterGroup[i][j]
-                            if object then
-                                processObject(object, i)
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    
-    --MOVE CAMERA
-    local finalVelX = {}
-    local finalVelY = {}
-    local cameraVelX = {}
-    local cameraVelY = {}
-    if not Camera.McameraFrozen then
-        if Map.map.orientation == Map.Type.Isometric then
-            if Camera.refMove then
-                local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)					
-                local isoPos = Map.isoUntransform2(cameraX, cameraY)
-                cameraX = isoPos[1]
-                cameraY = isoPos[2]
-                local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                local cameraLocY = math.ceil(cameraY / Map.map.tileheight)					
-                local velX = deltaX[Map.refLayer][1]
-                local velY = deltaY[Map.refLayer][1]
-                local tempVelX = deltaX[Map.refLayer][1]
-                local tempVelY = deltaY[Map.refLayer][1]					
-                local check = #Map.map.layers
-                for i = 1, #Map.map.layers, 1 do
-                    if Camera.isCameraMoving[i] then
-                        if Camera.parallaxToggle[i] then
-                            finalVelX[i] = tempVelX * Map.map.layers[i].parallaxX / Map.map.layers[i].properties.scaleX
-                            finalVelY[i] = tempVelY * Map.map.layers[i].parallaxY / Map.map.layers[i].properties.scaleY
-                        else
-                            finalVelX[i] = tempVelX
-                            finalVelY[i] = tempVelY
-                        end
-                    end
-                    table.remove(deltaX[i], 1)
-                    table.remove(deltaY[i], 1)
-                    if not deltaX[i][1] then
-                        check = check - 1
-                        Camera.isCameraMoving[i] = false
-                        Camera.parallaxToggle[i] = true
-                        Camera.refMove = false
-                        --Sprites.holdSprite = nil
-                    end
-                end					
-                if Camera.cameraFocus and not Sprites.holdSprite then
-                    for i = 1, #Map.map.layers, 1 do
-                        Camera.cameraFocus.cameraOffsetX[i] = Camera.cameraFocus.cameraOffsetX[i] + finalVelX[Map.refLayer]
-                        Camera.cameraFocus.cameraOffsetY[i] = Camera.cameraFocus.cameraOffsetY[i] + finalVelY[Map.refLayer]
-                    end
-                end					
-                if check == 0 and Camera.cameraOnComplete[1] then
-                    local tempOnComplete = Camera.cameraOnComplete[1]
-                    Camera.cameraOnComplete = {}
-                    local event = { name = "cameraMoveComplete", levelPosX = cameraX, 
-                        levelPosY = cameraY, 
-                        locX = cameraLocX, 
-                        locY = cameraLocY
-                    }
-                    tempOnComplete(event)
-                end
-            else
-                for i = 1, #Map.map.layers, 1 do
-                    if Camera.isCameraMoving[i] then
-                        local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                        local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                        local isoPos = Map.isoUntransform2(cameraX, cameraY)
-                        cameraX = isoPos[1]
-                        cameraY = isoPos[2]
-                        local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                        local cameraLocY = math.ceil(cameraY / Map.map.tileheight)							
-                        local velX = deltaX[i][1]
-                        local velY = deltaY[i][1]
-                        local tempVelX = deltaX[i][1]
-                        local tempVelY = deltaY[i][1]							
-                        if Camera.parallaxToggle[i] or Camera.parallaxToggle[i] == nil then
-                            finalVelX[i] = tempVelX * Map.map.layers[i].parallaxX / Map.map.layers[i].properties.scaleX
-                            finalVelY[i] = tempVelY * Map.map.layers[i].parallaxY / Map.map.layers[i].properties.scaleY
-                        else
-                            finalVelX[i] = tempVelX
-                            finalVelY[i] = tempVelY
-                        end
-                        if Camera.cameraFocus and not Sprites.holdSprite then
-                            Camera.cameraFocus.cameraOffsetX[i] = Camera.cameraFocus.cameraOffsetX[i] + finalVelX[i]
-                            Camera.cameraFocus.cameraOffsetY[i] = Camera.cameraFocus.cameraOffsetY[i] + finalVelY[i]
-                        end						
-                        table.remove(deltaX[i], 1)
-                        table.remove(deltaY[i], 1)
-                        if not deltaX[i][1] then
-                            Camera.isCameraMoving[i] = false
-                            Camera.parallaxToggle[i] = true
-                            --Sprites.holdSprite = nil
-                            if Camera.cameraOnComplete[i] then
-                                local tempOnComplete = Camera.cameraOnComplete[i]
-                                Camera.cameraOnComplete[i] = nil
-                                local event = { name = "cameraLayerMoveComplete", layer = i, 
-                                    levelPosX = cameraX, 
-                                    levelPosY = cameraY, 
-                                    locX = cameraLocX, 
-                                    locY = cameraLocY
-                                }
-                                tempOnComplete(event)
-                            end
-                        end
-                    end
-                end
-            end
-            
-            --FOLLOW SPRITE
-            local followingSprite = false
-            if Camera.cameraFocus and not Sprites.holdSprite then
-                for i = 1, #Map.map.layers, 1 do
-                    local tempX, tempY, cameraX, cameraY, velX, velY
-                    if Map.map.layers[i].toggleParallax == true or Map.map.layers[i].parallaxX ~= 1 or Map.map.layers[i].parallaxY ~= 1 then
-                        tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                        cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-                        velX = finalVelX[Map.refLayer] or 0
-                        velY = finalVelY[Map.refLayer] or 0
-                    else
-                        tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                        cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                        velX = finalVelX[i] or 0
-                        velY = finalVelY[i] or 0
-                    end
-                    local isoPos = Map.isoUntransform2(cameraX, cameraY)
-                    cameraX = isoPos[1]
-                    cameraY = isoPos[2]
-                    local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                    local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-                    local fX = Camera.cameraFocus.levelPosX
-                    local fY = Camera.cameraFocus.levelPosY
-                    if math.abs((cameraX + velX) - (fX + Camera.cameraFocus.cameraOffsetX[i])) > 0.1 then
-                        finalVelX[i] = ((fX + Camera.cameraFocus.cameraOffsetX[i]) - (cameraX)) * Map.map.layers[i].parallaxX / Map.map.layers[i].properties.scaleX
-                        followingSprite = true
-                    end
-                    if math.abs((cameraY + velY) - (fY + Camera.cameraFocus.cameraOffsetY[i])) > 0.1 then
-                        finalVelY[i] = ((fY + Camera.cameraFocus.cameraOffsetY[i]) - (cameraY)) * Map.map.layers[i].parallaxY / Map.map.layers[i].properties.scaleY
-                        followingSprite = true
-                    end
-                end
-                
-            end
-            
-            --Clear constraint variable: override
-            local checkHoldSprite = 0
-            for i = 1, #Map.map.layers, 1 do
-                if Camera.override[i] and (not deltaX[i] or not deltaX[i][1]) then
-                    Camera.override[i] = false
-                end
-                if not Camera.deltaX[i] or not Camera.deltaX[i][1] then
-                    checkHoldSprite = checkHoldSprite + 1
-                end
-            end
-            if checkHoldSprite == #Map.map.layers and Sprites.holdSprite then
-                Sprites.holdSprite = false
-            end
-            
-            --APPLY CONSTRAINTS CONTINUOUSLY
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-            local isoPos = Map.isoUntransform2(cameraX, cameraY)
-            cameraX = isoPos[1]
-            cameraY = isoPos[2]
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-            
-            --calculate constraints
-            local angle = Map.masterGroup.rotation + Map.masterGroup[Map.refLayer].rotation
-            while angle >= 360 do
-                angle = angle - 360
-            end
-            while angle < 0 do
-                angle = angle + 360
-            end				
-            local topLeftT, topRightT, bottomRightT, bottomLeftT
-            topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft, Screen.screenTop)}
-            topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight, Screen.screenTop)}
-            bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight, Screen.screenBottom)}
-            bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft, Screen.screenBottom)}				
-            local topLeft, topRight, bottomRight, bottomLeft
-            if angle >= 0 and angle < 90 then
-                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
-                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-            elseif angle >= 90 and angle < 180 then
-                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
-                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
-            elseif angle >= 180 and angle < 270 then
-                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
-            elseif angle >= 270 and angle < 360 then
-                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
-                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-            end
-            for i = 1, #Map.map.layers, 1 do
-                if (not followingSprite or Map.masterGroup[i].vars.constrainLayer) and not Map.masterGroup[i].vars.alignment then
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                    cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                    local isoPos = Map.isoUntransform2(cameraX, cameraY)
-                    cameraX = isoPos[1]
-                    cameraY = isoPos[2]
-                    cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                    cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-                    
-                    --calculate constraints
-                    angle = Map.masterGroup.rotation + Map.masterGroup[i].rotation
-                    while angle >= 360 do
-                        angle = angle - 360
-                    end
-                    while angle < 0 do
-                        angle = angle + 360
-                    end						
-                    if angle >= 0 and angle < 90 then
-                        topLeft = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
-                        topRight = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
-                        bottomRight = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                        bottomLeft = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    elseif angle >= 90 and angle < 180 then
-                        topLeft = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
-                        topRight = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                        bottomRight = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                        bottomLeft = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    elseif angle >= 180 and angle < 270 then
-                        topLeft = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                        topRight = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                        bottomRight = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
-                        bottomLeft = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
-                    elseif angle >= 270 and angle < 360 then
-                        topLeft = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                        topRight = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
-                        bottomRight = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
-                        bottomLeft = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    end
-                end					
-                local topLeftT, topRightT, bottomRightT, bottomLeftT
-                topLeftT = Map.isoUntransform2(topLeft[1], topLeft[2])
-                topRightT = Map.isoUntransform2(topRight[1], topRight[2])
-                bottomRightT = Map.isoUntransform2(bottomRight[1], bottomRight[2])
-                bottomLeftT = Map.isoUntransform2(bottomLeft[1], bottomLeft[2])					
-                local left, top, right, bottom
-                left = topLeftT[1] - (Map.map.tilewidth / 2)
-                top = topRightT[2] - (Map.map.tileheight / 2)
-                right = bottomRightT[1] - (Map.map.tilewidth / 2)
-                bottom = bottomLeftT[2] - (Map.map.tileheight / 2)					
-                local leftConstraint, topConstraint, rightConstraint, bottomConstraint
-                if Camera.constrainLeft[i] then
-                    leftConstraint = Camera.constrainLeft[i] + (cameraX - left)
-                end
-                if Camera.constrainTop[i] then
-                    topConstraint = Camera.constrainTop[i] + (cameraY - top)
-                end
-                if Camera.constrainRight[i] then
-                    rightConstraint = Camera.constrainRight[i] - (right - cameraX)
-                end
-                if Camera.constrainBottom[i] then
-                    bottomConstraint = Camera.constrainBottom[i] - (bottom - cameraY)
-                end						
-                if (leftConstraint and rightConstraint) and (leftConstraint > rightConstraint) then
-                    local temp = (leftConstraint + rightConstraint) / 2
-                    leftConstraint = temp
-                    rightConstraint = temp
-                end
-                if (topConstraint and bottomConstraint) and (topConstraint > bottomConstraint) then
-                    local temp = (topConstraint + bottomConstraint) / 2
-                    topConstraint = temp
-                    bottomConstraint = temp
-                end				
-                if not Map.masterGroup[i].vars.alignment then
-                    local velX = finalVelX[i] or 0
-                    local velY = finalVelY[i] or 0
-                    local tempVelX = velX
-                    local tempVelY = velY					
-                    if not Camera.override[i] then
-                        local tVelX, tVelY = tempVelX, tempVelY
-                        if leftConstraint then
-                            if cameraX + velX / Map.map.layers[i].parallaxX < leftConstraint then
-                                tVelX = (leftConstraint - cameraX) / Map.map.layers[i].parallaxX
-                            end
-                        end
-                        if rightConstraint then
-                            if cameraX + velX / Map.map.layers[i].parallaxX > rightConstraint then
-                                tVelX = (rightConstraint - cameraX) / Map.map.layers[i].parallaxX
-                            end
-                        end
-                        if topConstraint then
-                            if cameraY + velY / Map.map.layers[i].parallaxY < topConstraint then
-                                tVelY = (topConstraint - cameraY) / Map.map.layers[i].parallaxY
-                            end
-                        end
-                        if bottomConstraint then
-                            if cameraY + velY / Map.map.layers[i].parallaxY > bottomConstraint then
-                                tVelY = (bottomConstraint - cameraY) / Map.map.layers[i].parallaxY
-                            end
-                        end
-                        tempVelX = tVelX
-                        tempVelY = tVelY
-                    end					
-                    local velX = tempVelX
-                    local velY = tempVelY
-                    nXx = math.cos(R45) * velX * 1
-                    nXy = math.sin(R45) * velX / Map.map.isoRatio
-                    nYx = math.sin(R45) * velY * -1
-                    nYy = math.cos(R45) * velY / Map.map.isoRatio
-                    local tempVelX2 = (nXx + nYx)
-                    local tempVelY2 = (nXy + nYy)
-                    Map.masterGroup[i]:translate(tempVelX2 * -1 * Map.map.layers[i].properties.scaleX, tempVelY2 * -1 * Map.map.layers[i].properties.scaleY)
-                else
-                    if not leftConstraint then
-                        leftConstraint = (0 - (Map.map.locOffsetX * Map.map.tilewidth)) + (cameraX - left)
-                    end
-                    if not topConstraint then
-                        topConstraint = (0 - (Map.map.locOffsetY * Map.map.tileheight)) + (cameraY - top)
-                    end
-                    if not rightConstraint then
-                        rightConstraint = ((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth) - (right - cameraX)
-                    end
-                    if not bottomConstraint then
-                        bottomConstraint = ((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight) - (bottom - cameraY)	
-                    end			
-                    if (leftConstraint and rightConstraint) and (leftConstraint > rightConstraint) then
-                        local temp = (leftConstraint + rightConstraint) / 2
-                        leftConstraint = temp
-                        rightConstraint = temp
-                    end
-                    if (topConstraint and bottomConstraint) and (topConstraint > bottomConstraint) then
-                        local temp = (topConstraint + bottomConstraint) / 2
-                        topConstraint = temp
-                        bottomConstraint = temp
-                    end	
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                    local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-                    local isoPos = Map.isoUntransform2(cameraX, cameraY)
-                    cameraX = isoPos[1]
-                    cameraY = isoPos[2]
-                    local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                    local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-                    local xA = Map.masterGroup[i].vars.alignment[1] or "center"
-                    local yA = Map.masterGroup[i].vars.alignment[2] or "center"						
-                    local levelPosX, levelPosY
-                    if xA == "center" then
-                        local adjustment1 = (((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5)) * Map.map.layers[i].properties.scaleX) - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))
-                        local adjustment2 = (cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) - ((cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) * Map.map.layers[i].parallaxX)
-                        levelPosX = ((cameraX + adjustment1) - adjustment2)
-                    elseif xA == "left" then
-                        local adjustment = (cameraX - leftConstraint) - ((cameraX - leftConstraint) * Map.map.layers[i].parallaxX)
-                        levelPosX = (cameraX - adjustment)
-                    elseif xA == "right" then
-                        local adjustment1 = (((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth) * Map.map.layers[i].properties.scaleX) - ((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth)
-                        local adjustment2 = (cameraX - rightConstraint) - ((cameraX - rightConstraint) * Map.map.layers[i].parallaxX)
-                        levelPosX = ((cameraX + adjustment1) - adjustment2)
-                    end						
-                    if yA == "center" then
-                        local adjustment1 = (((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5)) * Map.map.layers[i].properties.scaleY) - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))
-                        local adjustment2 = (cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) - ((cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) * Map.map.layers[i].parallaxY)
-                        levelPosY = ((cameraY + adjustment1) - adjustment2)
-                    elseif yA == "top" then
-                        local adjustment = (cameraY - topConstraint) - ((cameraY - topConstraint) * Map.map.layers[i].parallaxY)
-                        levelPosY = (cameraY - adjustment)
-                    elseif yA == "bottom" then
-                        local adjustment1 = (((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight) * Map.map.layers[i].properties.scaleY) - ((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight)
-                        local adjustment2 = (cameraY - bottomConstraint) - ((cameraY - bottomConstraint) * Map.map.layers[i].parallaxY)
-                        levelPosY = ((cameraY + adjustment1) - adjustment2)
-                    end							
-                    local deltaX = levelPosX + ((Map.map.tilewidth / 2 * Map.map.layers[i].properties.scaleX) - (Map.map.tilewidth / 2)) - cameraX * Map.map.layers[i].properties.scaleX
-                    local deltaY = levelPosY + ((Map.map.tileheight / 2 * Map.map.layers[i].properties.scaleY) - (Map.map.tileheight / 2)) - cameraY * Map.map.layers[i].properties.scaleY	
-                    local isoVector = M.isoVector(deltaX, deltaY)						
-                    Map.masterGroup[i].x = (Map.masterGroup[Map.refLayer].x * Map.map.layers[i].properties.scaleX) - isoVector[1]
-                    Map.masterGroup[i].y = (Map.masterGroup[Map.refLayer].y * Map.map.layers[i].properties.scaleY) - isoVector[2]		
-                end
-            end	
-        else
-            if Camera.refMove then
-                local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-                local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                local cameraLocY = math.ceil(cameraY / Map.map.tileheight)					
-                local velX = Camera.deltaX[Map.refLayer][1]
-                local velY = Camera.deltaY[Map.refLayer][1]
-                local tempVelX = Camera.deltaX[Map.refLayer][1]
-                local tempVelY = Camera.deltaY[Map.refLayer][1]					
-                local check = #Map.map.layers
-                for i = 1, #Map.map.layers, 1 do
-                    if Camera.isCameraMoving[i] then
-                        if Camera.parallaxToggle[i] then
-                            finalVelX[i] = tempVelX * Map.map.layers[i].parallaxX
-                            finalVelY[i] = tempVelY * Map.map.layers[i].parallaxY
-                            cameraVelX[i] = tempVelX * Map.map.layers[i].parallaxX
-                            cameraVelY[i] = tempVelY * Map.map.layers[i].parallaxY
-                        else
-                            finalVelX[i] = tempVelX
-                            finalVelY[i] = tempVelY
-                            cameraVelX[i] = tempVelX
-                            cameraVelY[i] = tempVelY
-                        end
-                    end						
-                    table.remove(Camera.deltaX[i], 1)
-                    table.remove(Camera.deltaY[i], 1)
-                    if not Camera.deltaX[i][1] then
-                        check = check - 1
-                        Camera.isCameraMoving[i] = false
-                        Camera.parallaxToggle[i] = true
-                        --Camera.refMove = false
-                        --Sprites.holdSprite = nil
-                    end
-                end					
-                if Camera.cameraFocus and not Sprites.holdSprite then
-                    for i = 1, #Map.map.layers, 1 do
-                        Camera.cameraFocus.cameraOffsetX[i] = Camera.cameraFocus.cameraOffsetX[i] + finalVelX[Map.refLayer]
-                        Camera.cameraFocus.cameraOffsetY[i] = Camera.cameraFocus.cameraOffsetY[i] + finalVelY[Map.refLayer]
-                    end
-                end						
-                if check == 0 and Camera.cameraOnComplete[1] then
-                    local tempOnComplete = Camera.cameraOnComplete[1]
-                    Camera.cameraOnComplete = {}
-                    local event = { name = "cameraMoveComplete", levelPosX = cameraX, 
-                        levelPosY = cameraY, 
-                        locX = cameraLocX, 
-                        locY = cameraLocY
-                    }
-                    tempOnComplete(event)
-                end
-            else					
-                for i = 1, #Map.map.layers, 1 do
-                    if Camera.isCameraMoving[i] then
-                        local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                        local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                        local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                        local cameraLocY = math.ceil(cameraY / Map.map.tileheight)						
-                        local velX = Camera.deltaX[i][1]
-                        local velY = Camera.deltaY[i][1]
-                        local tempVelX = Camera.deltaX[i][1]
-                        local tempVelY = Camera.deltaY[i][1]
-                        if Camera.parallaxToggle[i] or Camera.parallaxToggle[i] == nil then
-                            finalVelX[i] = tempVelX * Map.map.layers[i].parallaxX
-                            finalVelY[i] = tempVelY * Map.map.layers[i].parallaxY
-                        else
-                            finalVelX[i] = tempVelX
-                            finalVelY[i] = tempVelY
-                        end							
-                        if Camera.cameraFocus and not Sprites.holdSprite then
-                            Camera.cameraFocus.cameraOffsetX[i] = Camera.cameraFocus.cameraOffsetX[i] + finalVelX[i]
-                            Camera.cameraFocus.cameraOffsetY[i] = Camera.cameraFocus.cameraOffsetY[i] + finalVelY[i]
-                        end						
-                        table.remove(Camera.deltaX[i], 1)
-                        table.remove(Camera.deltaY[i], 1)
-                        if not Camera.deltaX[i][1] then
-                            Camera.isCameraMoving[i] = false
-                            Camera.parallaxToggle[i] = true
-                            --Sprites.holdSprite = nil
-                            if Camera.cameraOnComplete[i] then
-                                local tempOnComplete = Camera.cameraOnComplete[i]
-                                Camera.cameraOnComplete[i] = nil
-                                local event = { name = "cameraLayerMoveComplete", layer = i, 
-                                    levelPosX = cameraX, 
-                                    levelPosY = cameraY, 
-                                    locX = cameraLocX, 
-                                    locY = cameraLocY
-                                }
-                                tempOnComplete(event)
-                            end
-                        end
-                    end
-                end
-            end
-            
-            --FOLLOW SPRITE
-            local followingSprite = false
-            if Camera.cameraFocus and not Sprites.holdSprite then
-                for i = 1, #Map.map.layers, 1 do
-                    local tempX, tempY, cameraX, cameraY, velX, velY
-                    if Map.map.layers[i].toggleParallax == true or Map.map.layers[i].parallaxX ~= 1 or Map.map.layers[i].parallaxY ~= 1 then
-                        tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                        cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-                        velX = finalVelX[Map.refLayer] or 0
-                        velY = finalVelY[Map.refLayer] or 0
-                    else
-                        tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                        cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                        velX = finalVelX[i] or 0
-                        velY = finalVelY[i] or 0
-                    end
-                    local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                    local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-                    local fX = Camera.cameraFocus.x
-                    local fY = Camera.cameraFocus.y
-                    if cameraX + velX ~= fX + Camera.cameraFocus.cameraOffsetX[i] then
-                        if not Camera.override[i] then
-                            finalVelX[i] = ((fX + Camera.cameraFocus.cameraOffsetX[i]) - (cameraX)) * Map.map.layers[i].parallaxX
-                            followingSprite = true
-                        end
-                    end
-                    if cameraY + velY ~= fY + Camera.cameraFocus.cameraOffsetY[i] then
-                        if not Camera.override[i] then
-                            finalVelY[i] = ((fY + Camera.cameraFocus.cameraOffsetY[i]) - (cameraY)) * Map.map.layers[i].parallaxY
-                            followingSprite = true
-                        end
-                    end
-                end
-            end
-            
-            --Clear constraint variables: Camera.override, Sprites.holdSprite
-            local checkHoldSprite = 0
-            for i = 1, #Map.map.layers, 1 do
-                if Camera.override[i] and (not Camera.deltaX[i] or not Camera.deltaX[i][1]) then
-                    Camera.override[i] = false
-                end
-                if not Camera.deltaX[i] or not Camera.deltaX[i][1] then
-                    checkHoldSprite = checkHoldSprite + 1
-                end
-            end
-            if checkHoldSprite == #Map.map.layers and Sprites.holdSprite then
-                Sprites.holdSprite = false
-            end
-            
-            --APPLY CONSTRAINTS CONTINUOUSLY
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-            
-            --calculate constraints
-            local angle = Map.masterGroup.rotation + Map.masterGroup[Map.refLayer].rotation
-            while angle >= 360 do
-                angle = angle - 360
-            end
-            while angle < 0 do
-                angle = angle + 360
-            end				
-            local topLeftT, topRightT, bottomRightT, bottomLeftT
-            topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft, Screen.screenTop)}
-            topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight, Screen.screenTop)}
-            bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight, Screen.screenBottom)}
-            bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft, Screen.screenBottom)}				
-            local topLeft, topRight, bottomRight, bottomLeft
-            if angle >= 0 and angle < 90 then
-                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
-                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-            elseif angle >= 90 and angle < 180 then
-                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
-                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
-            elseif angle >= 180 and angle < 270 then
-                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
-            elseif angle >= 270 and angle < 360 then
-                topLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                topRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                bottomRight = {Map.masterGroup[Map.refLayer]:contentToLocal(topRightT[1], topRightT[2])}
-                bottomLeft = {Map.masterGroup[Map.refLayer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-            end
-            
-            for i = 1, #Map.map.layers, 1 do
-                if not Camera.refMove and ((not followingSprite or Map.masterGroup[i].vars.constrainLayer) and not Map.masterGroup[i].vars.alignment) then
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                    cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                    cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                    cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-                    
-                    --calculate constraints
-                    angle = Map.masterGroup.rotation + Map.masterGroup[i].rotation
-                    while angle >= 360 do
-                        angle = angle - 360
-                    end
-                    while angle < 0 do
-                        angle = angle + 360
-                    end						
-                    if angle >= 0 and angle < 90 then
-                        topLeft = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
-                        topRight = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
-                        bottomRight = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                        bottomLeft = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    elseif angle >= 90 and angle < 180 then
-                        topLeft = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
-                        topRight = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                        bottomRight = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                        bottomLeft = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    elseif angle >= 180 and angle < 270 then
-                        topLeft = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                        topRight = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                        bottomRight = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
-                        bottomLeft = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
-                    elseif angle >= 270 and angle < 360 then
-                        topLeft = {Map.masterGroup[i]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                        topRight = {Map.masterGroup[i]:contentToLocal(topLeftT[1], topLeftT[2])}
-                        bottomRight = {Map.masterGroup[i]:contentToLocal(topRightT[1], topRightT[2])}
-                        bottomLeft = {Map.masterGroup[i]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    end
-                end
-                local left, top, right, bottom
-                if topLeft[1] < bottomLeft[1] then
-                    left = topLeft[1]
-                else
-                    left = bottomLeft[1]
-                end
-                if topLeft[2] < topRight[2] then
-                    top = topLeft[2]
-                else
-                    top = topRight[2]
-                end
-                if topRight[1] > bottomRight[1] then
-                    right = topRight[1]
-                else
-                    right = bottomRight[1]
-                end
-                if bottomRight[2] > bottomLeft[2] then
-                    bottom = bottomRight[2]
-                else
-                    bottom = bottomLeft[2]
-                end	
-                local leftConstraint, topConstraint, rightConstraint, bottomConstraint
-                if Camera.constrainLeft[i] then
-                    leftConstraint = Camera.constrainLeft[i] + (cameraX - left)
-                end
-                if Camera.constrainTop[i] then
-                    topConstraint = Camera.constrainTop[i] + (cameraY - top)
-                end
-                if Camera.constrainRight[i] then
-                    rightConstraint = Camera.constrainRight[i] - (right - cameraX)
-                end
-                if Camera.constrainBottom[i] then
-                    bottomConstraint = Camera.constrainBottom[i] - (bottom - cameraY)
-                end						
-                if (leftConstraint and rightConstraint) and (leftConstraint > rightConstraint) then
-                    local temp = (leftConstraint + rightConstraint) / 2
-                    leftConstraint = temp
-                    rightConstraint = temp
-                end
-                if (topConstraint and bottomConstraint) and (topConstraint > bottomConstraint) then
-                    local temp = (topConstraint + bottomConstraint) / 2
-                    topConstraint = temp
-                    bottomConstraint = temp
-                end					
-                --print(Map.masterGroup[i].vars.alignment)
-                if not Map.masterGroup[i].vars.alignment then
-                    local velX = finalVelX[i] or 0
-                    local velY = finalVelY[i] or 0
-                    local tempVelX = velX
-                    local tempVelY = velY					
-                    if not Camera.override[i] then
-                        if leftConstraint then
-                            if cameraX + velX / Map.map.layers[i].parallaxX < leftConstraint then
-                                tempVelX = (leftConstraint - cameraX) * Map.map.layers[i].parallaxX
-                            end
-                            if Camera.cameraFocus and Camera.cameraFocus.levelPosX + Camera.cameraFocus.cameraOffsetX[i] < leftConstraint then
-                                Camera.cameraFocus.cameraOffsetX[i] = leftConstraint - Camera.cameraFocus.levelPosX
-                                if Camera.cameraFocus.levelPosX + Camera.cameraFocus.cameraOffsetX[i] > Camera.cameraFocus.levelPosX and (cameraVelX[i] or 0) <= 0 then
-                                    Camera.cameraFocus.cameraOffsetX[i] = 0
-                                end
-                            end
-                        end
-                        if rightConstraint then
-                            if cameraX + velX / Map.map.layers[i].parallaxX > rightConstraint then
-                                tempVelX = (rightConstraint - cameraX) * Map.map.layers[i].parallaxX
-                            end
-                            if Camera.cameraFocus and Camera.cameraFocus.levelPosX + Camera.cameraFocus.cameraOffsetX[i] > rightConstraint then
-                                Camera.cameraFocus.cameraOffsetX[i] = rightConstraint - Camera.cameraFocus.levelPosX
-                                if Camera.cameraFocus.levelPosX + Camera.cameraFocus.cameraOffsetX[i] < Camera.cameraFocus.levelPosX and (cameraVelX[i] or 0) >= 0 then
-                                    Camera.cameraFocus.cameraOffsetX[i] = 0
-                                end
-                            end
-                        end
-                        if topConstraint then
-                            if cameraY + velY / Map.map.layers[i].parallaxY < topConstraint then
-                                tempVelY = (topConstraint - cameraY) * Map.map.layers[i].parallaxY
-                            end
-                            if Camera.cameraFocus and Camera.cameraFocus.levelPosY + Camera.cameraFocus.cameraOffsetY[i] < topConstraint then
-                                Camera.cameraFocus.cameraOffsetY[i] = topConstraint - Camera.cameraFocus.levelPosY
-                                if Camera.cameraFocus.levelPosY + Camera.cameraFocus.cameraOffsetY[i] > Camera.cameraFocus.levelPosY and (cameraVelY[i] or 0) <= 0 then
-                                    Camera.cameraFocus.cameraOffsetY[i] = 0
-                                end
-                            end
-                        end
-                        if bottomConstraint then
-                            if cameraY + velY / Map.map.layers[i].parallaxY > bottomConstraint then
-                                tempVelY = (bottomConstraint - cameraY) * Map.map.layers[i].parallaxY
-                            end
-                            if Camera.cameraFocus and Camera.cameraFocus.levelPosY + Camera.cameraFocus.cameraOffsetY[i] > bottomConstraint then
-                                Camera.cameraFocus.cameraOffsetY[i] = bottomConstraint - Camera.cameraFocus.levelPosY
-                                if Camera.cameraFocus.levelPosY + Camera.cameraFocus.cameraOffsetY[i] < Camera.cameraFocus.levelPosY and (cameraVelY[i] or 0) >= 0 then
-                                    Camera.cameraFocus.cameraOffsetY[i] = 0
-                                end
-                            end
-                        end
-                    end				
-                    Map.masterGroup[i]:translate(tempVelX * -1 * Map.map.layers[i].properties.scaleX, tempVelY * -1 * Map.map.layers[i].properties.scaleY)
-                else
-                    if not leftConstraint then
-                        leftConstraint = (0 - (Map.map.locOffsetX * Map.map.tilewidth)) + (cameraX - left)
-                    end
-                    if not topConstraint then
-                        topConstraint = (0 - (Map.map.locOffsetY * Map.map.tileheight)) + (cameraY - top)
-                    end
-                    if not rightConstraint then
-                        rightConstraint = (Map.map.width * Map.map.tilewidth) - (right - cameraX)
-                    end
-                    if not bottomConstraint then
-                        bottomConstraint = (Map.map.height * Map.map.tileheight) - (bottom - cameraY)	
-                    end			
-                    if (leftConstraint and rightConstraint) and (leftConstraint > rightConstraint) then
-                        local temp = (leftConstraint + rightConstraint) / 2
-                        leftConstraint = temp
-                        rightConstraint = temp
-                    end
-                    if (topConstraint and bottomConstraint) and (topConstraint > bottomConstraint) then
-                        local temp = (topConstraint + bottomConstraint) / 2
-                        topConstraint = temp
-                        bottomConstraint = temp
-                    end	
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                    local cameraX, cameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-                    local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                    local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-                    local xA = Map.masterGroup[i].vars.alignment[1]
-                    local yA = Map.masterGroup[i].vars.alignment[2]	
-                    --print(i, xA, yA)					
-                    if xA == "center" then
-                        --local adjustment1 = (((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5)) * Map.map.layers[i].properties.scaleX) - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))
-                        --local adjustment2 = (cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) - ((cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) * Map.map.layers[i].parallaxX)
-                        --print(Map.map.layers[i].parallaxX)
-                        --local adjustment1 = (((Map.map.layers[i].width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5)) * Map.map.layers[i].properties.scaleX) - ((Map.map.layers[i].width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))
-                        local adjustment1 = (((Map.map.layers[i].width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5)) * Map.map.layers[i].properties.scaleX) - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))
-                        local adjustment2 = (cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) - ((cameraX - ((Map.map.width * Map.map.tilewidth * 0.5) - (Map.map.locOffsetX * Map.map.tilewidth * 0.5))) * Map.map.layers[i].parallaxX)
-                        Map.masterGroup[i].x = ((cameraX + adjustment1) - adjustment2) * -1
-                    elseif xA == "left" then
-                        local adjustment = (cameraX - leftConstraint) - ((cameraX - leftConstraint) * Map.map.layers[i].parallaxX)
-                        Map.masterGroup[i].x = (cameraX - adjustment) * -1
-                    elseif xA == "right" then
-                        --local adjustment1 = (((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth) * Map.map.layers[i].properties.scaleX) - ((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth)
-                        --local adjustment2 = (cameraX - rightConstraint) - ((cameraX - rightConstraint) * Map.map.layers[i].parallaxX)
-                        local adjustment1 = (((Map.map.layers[i].width - Map.map.locOffsetX) * Map.map.tilewidth) * Map.map.layers[i].properties.scaleX) - ((Map.map.width - Map.map.locOffsetX) * Map.map.tilewidth)
-                        local adjustment2 = (cameraX - rightConstraint) - ((cameraX - rightConstraint) * Map.map.layers[i].parallaxX)
-                        Map.masterGroup[i].x = ((cameraX + adjustment1) - adjustment2) * -1
-                    end						
-                    if yA == "center" then
-                        --local adjustment1 = (((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5)) * Map.map.layers[i].properties.scaleY) - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))
-                        --local adjustment2 = (cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) - ((cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) * Map.map.layers[i].parallaxY)
-                        local adjustment1 = (((Map.map.layers[i].height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5)) * Map.map.layers[i].properties.scaleY) - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))
-                        local adjustment2 = (cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) - ((cameraY - ((Map.map.height * Map.map.tileheight * 0.5) - (Map.map.locOffsetY * Map.map.tileheight * 0.5))) * Map.map.layers[i].parallaxY)
-                        Map.masterGroup[i].y = ((cameraY + adjustment1) - adjustment2) * -1
-                    elseif yA == "top" then
-                        local adjustment = (cameraY - topConstraint) - ((cameraY - topConstraint) * Map.map.layers[i].parallaxY)
-                        Map.masterGroup[i].y = (cameraY - adjustment) * -1
-                    elseif yA == "bottom" then
-                        --local adjustment1 = (((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight) * Map.map.layers[i].properties.scaleY) - ((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight)
-                        --local adjustment2 = (cameraY - bottomConstraint) - ((cameraY - bottomConstraint) * Map.map.layers[i].parallaxY)
-                        local adjustment1 = (((Map.map.layers[i].height - Map.map.locOffsetY) * Map.map.tileheight) * Map.map.layers[i].properties.scaleY) - ((Map.map.height - Map.map.locOffsetY) * Map.map.tileheight)
-                        local adjustment2 = (cameraY - bottomConstraint) - ((cameraY - bottomConstraint) * Map.map.layers[i].parallaxY)
-                        Map.masterGroup[i].y = ((cameraY + adjustment1) - adjustment2) * -1
-                    end
-                end
-            end
-            
-            if Camera.refMove and not Camera.deltaX[Map.refLayer][1] then
-                Camera.refMove = false
-            end				
-        end
-    end
-    
-    --WRAP CAMERA
-    for i = 1, #Map.map.layers, 1 do
-        if not Camera.isCameraMoving[i] then
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)				
-            if Map.map.orientation == Map.Type.Isometric then
-                local isoPos = Map.isoUntransform2(cameraX, cameraY)
-                cameraX = isoPos[1]
-                cameraY = isoPos[2]					
-                if Camera.layerWrapX[i] then
-                    if cameraX < 0 then
-                        local vector = M.isoVector(Map.map.layers[i].width * Map.map.tilewidth, 0)
-                        Map.masterGroup[i]:translate(vector[1] * -1 * Map.map.layers[i].properties.scaleX, vector[2] * -1 * Map.map.layers[i].properties.scaleY)
-                    elseif cameraX > Map.map.layers[i].width * Map.map.tilewidth then
-                        local vector = M.isoVector(Map.map.layers[i].width * Map.map.tilewidth * -1, 0)
-                        Map.masterGroup[i]:translate(vector[1] * -1 * Map.map.layers[i].properties.scaleX, vector[2] * -1 * Map.map.layers[i].properties.scaleY)
-                    end
-                end
-                if Camera.layerWrapY[i] then
-                    if cameraY < 0 then
-                        local vector = M.isoVector(0, Map.map.layers[i].height * Map.map.tileheight)
-                        Map.masterGroup[i]:translate(vector[1] * -1 * Map.map.layers[i].properties.scaleX, vector[2] * -1 * Map.map.layers[i].properties.scaleY)
-                    elseif cameraY > Map.map.layers[i].height * Map.map.tileheight then
-                        local vector = M.isoVector(0, Map.map.layers[i].height * Map.map.tileheight * -1)
-                        Map.masterGroup[i]:translate(vector[1] * -1 * Map.map.layers[i].properties.scaleX, vector[2] * -1 * Map.map.layers[i].properties.scaleY)
-                    end
-                end
-            else
-                if Camera.layerWrapX[i] then
-                    if cameraX < 0 then
-                        Map.masterGroup[i].x = Map.masterGroup[i].x + Map.map.layers[i].width * Map.map.tilewidth * -1 * Map.map.layers[i].properties.scaleX
-                    elseif cameraX > Map.map.layers[i].width * Map.map.tilewidth then
-                        Map.masterGroup[i].x = Map.masterGroup[i].x - Map.map.layers[i].width * Map.map.tilewidth * -1 * Map.map.layers[i].properties.scaleX
-                    end
-                end
-                if Camera.layerWrapY[i] then
-                    if cameraY < 0 then
-                        Map.masterGroup[i].y = Map.masterGroup[i].y + Map.map.layers[i].height * Map.map.tileheight * -1 * Map.map.layers[i].properties.scaleY
-                    elseif cameraY > Map.map.layers[i].height * Map.map.tileheight then
-                        Map.masterGroup[i].y = Map.masterGroup[i].y - Map.map.layers[i].height * Map.map.tileheight * -1 * Map.map.layers[i].properties.scaleY
-                    end
-                end
-            end
-        end
-    end
-    
-    --CULL AND RENDER
-    if Map.map.orientation == Map.Type.Isometric then
-        for layer = 1, #Map.map.layers, 1 do
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
-            local isoPos = Map.isoUntransform2(cameraX, cameraY)
-            cameraX = isoPos[1]
-            cameraY = isoPos[2]
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)				
-            Camera.McameraX, Camera.McameraY = cameraX, cameraY
-            Camera.McameraLocX = cameraLocX
-            Camera.McameraLocY = cameraLocY
-            if not Map.masterGroup[layer].vars.camera then	
-                --Render view if view does not exist
-                Map.totalRects[layer] = 0
-                local angle = Map.masterGroup.rotation + Map.masterGroup[layer].rotation
-                while angle >= 360 do
-                    angle = angle - 360
-                end
-                while angle < 0 do
-                    angle = angle + 360
-                end					
-                local topLeftT, topRightT, bottomRightT, bottomLeftT
-                topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenTop - Camera.cullingMargin[2])}
-                topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenTop - Camera.cullingMargin[2])}
-                bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenBottom + Camera.cullingMargin[4])}
-                bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenBottom + Camera.cullingMargin[4])}					
-                local topLeft, topRight, bottomRight, bottomLeft
-                if angle >= 0 and angle < 90 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                elseif angle >= 90 and angle < 180 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                elseif angle >= 180 and angle < 270 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                elseif angle >= 270 and angle < 360 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                end
-                topLeft = Map.isoUntransform2(topLeft[1], topLeft[2])
-                topRight = Map.isoUntransform2(topRight[1], topRight[2])
-                bottomRight = Map.isoUntransform2(bottomRight[1], bottomRight[2])
-                bottomLeft = Map.isoUntransform2(bottomLeft[1], bottomLeft[2])					
-                local left, top, right, bottom
-                left = math.ceil(topLeft[1] / Map.map.tilewidth) - 1
-                top = math.ceil(topRight[2] / Map.map.tileheight) - 1
-                right = math.ceil(bottomRight[1] / Map.map.tilewidth) + 2
-                bottom = math.ceil(bottomLeft[2] / Map.map.tileheight) + 2					
-                Map.masterGroup[layer].vars.camera = {left, top, right, bottom}					
-                for locX = left, right, 1 do
-                    for locY = top, bottom, 1 do										
-                        M.updateTile({locX = locX, locY = locY, layer = layer})
-                        --drawLargeTile(locX, locY, layer)
-                    end
-                end
-            else		
-                --Cull and Render
-                local prevLeft = Map.masterGroup[layer].vars.camera[1]
-                local prevTop = Map.masterGroup[layer].vars.camera[2]
-                local prevRight = Map.masterGroup[layer].vars.camera[3]
-                local prevBottom = Map.masterGroup[layer].vars.camera[4]							
-                local angle = Map.masterGroup.rotation + Map.masterGroup[layer].rotation
-                while angle >= 360 do
-                    angle = angle - 360
-                end
-                while angle < 0 do
-                    angle = angle + 360
-                end					
-                local topLeftT, topRightT, bottomRightT, bottomLeftT
-                topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenTop - Camera.cullingMargin[2])}
-                topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenTop - Camera.cullingMargin[2])}
-                bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenBottom + Camera.cullingMargin[4])}
-                bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenBottom + Camera.cullingMargin[4])}					
-                local topLeft, topRight, bottomRight, bottomLeft
-                if angle >= 0 and angle < 90 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                elseif angle >= 90 and angle < 180 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                elseif angle >= 180 and angle < 270 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                elseif angle >= 270 and angle < 360 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                end
-                topLeft = Map.isoUntransform2(topLeft[1], topLeft[2])
-                topRight = Map.isoUntransform2(topRight[1], topRight[2])
-                bottomRight = Map.isoUntransform2(bottomRight[1], bottomRight[2])
-                bottomLeft = Map.isoUntransform2(bottomLeft[1], bottomLeft[2])					
-                local left, top, right, bottom
-                left = math.ceil(topLeft[1] / Map.map.tilewidth) - 1
-                top = math.ceil(topRight[2] / Map.map.tileheight) - 1
-                right = math.ceil(bottomRight[1] / Map.map.tilewidth) + 2
-                bottom = math.ceil(bottomLeft[2] / Map.map.tileheight) + 2					
-                Map.masterGroup[layer].vars.camera = {left, top, right, bottom}
-                if left > prevRight or right < prevLeft or top > prevBottom or bottom < prevTop then
-                    for locX = prevLeft, prevRight, 1 do
-                        for locY = prevTop, prevBottom, 1 do										
-                            M.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
-                        end
-                    end
-                    for locX = left, right, 1 do
-                        for locY = top, bottom, 1 do										
-                            M.updateTile({locX = locX, locY = locY, layer = layer})
-                        end
-                    end
-                else
-                    --left
-                    if left > prevLeft then		--cull
-                        local tLeft = left
-                        for locX = prevLeft, tLeft - 1, 1 do
-                            for locY = prevTop, prevBottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
-                            end
-                        end
-                    elseif left < prevLeft then	--render
-                        local tLeft = prevLeft
-                        for locX = left, tLeft - 1, 1 do
-                            for locY = top, bottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer})
-                            end
-                        end
-                    end				
-                    --top
-                    if top > prevTop then		--cull
-                        local tTop = top
-                        for locX = prevLeft, prevRight, 1 do
-                            for locY = prevTop, tTop - 1, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
-                            end
-                        end
-                    elseif top < prevTop then	--render
-                        local tTop = prevTop
-                        for locX = left, right, 1 do
-                            for locY = top, tTop - 1, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer})
-                            end
-                        end
-                    end				
-                    --right
-                    if right > prevRight then		--render
-                        local tRight = prevRight
-                        for locX = tRight + 1, right, 1 do
-                            for locY = top, bottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer})
-                            end
-                        end
-                    elseif right < prevRight then	--cull
-                        local tRight = right
-                        for locX = tRight + 1, prevRight, 1 do
-                            for locY = prevTop, prevBottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
-                            end
-                        end
-                    end						
-                    --bottom
-                    if bottom > prevBottom then		--render
-                        local tBottom = prevBottom
-                        for locX = left, right, 1 do
-                            for locY = tBottom + 1, bottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer})
-                            end
-                        end
-                    elseif bottom < prevBottom then	--cull
-                        local tBottom = bottom
-                        for locX = prevLeft, prevRight, 1 do
-                            for locY = tBottom + 1, prevBottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
-                            end
-                        end
-                    end
-                end				
-            end
-        end
-    else
-        for layer = 1, #Map.map.layers, 1 do
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)	
-            
-            --print(layer, cameraX)
-            
-            Camera.McameraX, Camera.McameraY = cameraX, cameraY
-            Camera.McameraLocX = cameraLocX
-            Camera.McameraLocY = cameraLocY
-            if not Map.masterGroup[layer].vars.camera then	
-                --Render view if view does not exist
-                Map.totalRects[layer] = 0
-                local angle = Map.masterGroup.rotation + Map.masterGroup[layer].rotation
-                while angle >= 360 do
-                    angle = angle - 360
-                end
-                while angle < 0 do
-                    angle = angle + 360
-                end					
-                local topLeftT, topRightT, bottomRightT, bottomLeftT
-                topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenTop - Camera.cullingMargin[2])}
-                topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenTop - Camera.cullingMargin[2])}
-                bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenBottom + Camera.cullingMargin[4])}
-                bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenBottom + Camera.cullingMargin[4])}				
-                local topLeft, topRight, bottomRight, bottomLeft
-                if angle >= 0 and angle < 90 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                elseif angle >= 90 and angle < 180 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                elseif angle >= 180 and angle < 270 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                elseif angle >= 270 and angle < 360 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                end
-                local left, top, right, bottom
-                if topLeft[1] < bottomLeft[1] then
-                    left = math.ceil(topLeft[1] / Map.map.tilewidth)
-                else
-                    left = math.ceil(bottomLeft[1] / Map.map.tilewidth)
-                end
-                if topLeft[2] < topRight[2] then
-                    top = math.ceil(topLeft[2] / Map.map.tileheight)
-                else
-                    top = math.ceil(topRight[2] / Map.map.tileheight)
-                end
-                if topRight[1] > bottomRight[1] then
-                    right = math.ceil(topRight[1] / Map.map.tilewidth)
-                else
-                    right = math.ceil(bottomRight[1] / Map.map.tilewidth)
-                end
-                if bottomRight[2] > bottomLeft[2] then
-                    bottom = math.ceil(bottomRight[2] / Map.map.tileheight)
-                else
-                    bottom = math.ceil(bottomLeft[2] / Map.map.tileheight)
-                end				
-                Map.masterGroup[layer].vars.camera = {left, top, right, bottom}	
-                --print("do1", layer)
-                --print(" ", left, prevLeft)
-                --print(" ", top, prevTop)
-                --print(" ", right, prevRight)
-                --print(" ", bottom, prevBottom)				
-                for locX = left, right, 1 do
-                    for locY = top, bottom, 1 do										
-                        M.updateTile({locX = locX, locY = locY, layer = layer})
-                        drawCulledObjects(locX, locY, layer)
-                        drawLargeTile(locX, locY, layer)
-                    end
-                end
-                --print("=============")
-                ------------
-                --print("do", layer)
-            else	
-                --print("do2", layer)
-                --Cull and Render
-                local prevLeft = Map.masterGroup[layer].vars.camera[1]
-                local prevTop = Map.masterGroup[layer].vars.camera[2]
-                local prevRight = Map.masterGroup[layer].vars.camera[3]
-                local prevBottom = Map.masterGroup[layer].vars.camera[4]
-                local angle = Map.masterGroup.rotation + Map.masterGroup[layer].rotation
-                while angle >= 360 do
-                    angle = angle - 360
-                end
-                while angle < 0 do
-                    angle = angle + 360
-                end					
-                local topLeftT, topRightT, bottomRightT, bottomLeftT
-                topLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenTop - Camera.cullingMargin[2])}
-                topRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenTop - Camera.cullingMargin[2])}
-                bottomRightT = {Map.masterGroup.parent:localToContent(Screen.screenRight + Camera.cullingMargin[3], Screen.screenBottom + Camera.cullingMargin[4])}
-                bottomLeftT = {Map.masterGroup.parent:localToContent(Screen.screenLeft - Camera.cullingMargin[1], Screen.screenBottom + Camera.cullingMargin[4])}					
-                local topLeft, topRight, bottomRight, bottomLeft
-                if angle >= 0 and angle < 90 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                elseif angle >= 90 and angle < 180 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                elseif angle >= 180 and angle < 270 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                elseif angle >= 270 and angle < 360 then
-                    topLeft = {Map.masterGroup[layer]:contentToLocal(bottomLeftT[1], bottomLeftT[2])}
-                    topRight = {Map.masterGroup[layer]:contentToLocal(topLeftT[1], topLeftT[2])}
-                    bottomRight = {Map.masterGroup[layer]:contentToLocal(topRightT[1], topRightT[2])}
-                    bottomLeft = {Map.masterGroup[layer]:contentToLocal(bottomRightT[1], bottomRightT[2])}
-                end
-                local left, top, right, bottom
-                if topLeft[1] < bottomLeft[1] then
-                    left = math.ceil(topLeft[1] / Map.map.tilewidth)
-                else
-                    left = math.ceil(bottomLeft[1] / Map.map.tilewidth)
-                end
-                if topLeft[2] < topRight[2] then
-                    top = math.ceil(topLeft[2] / Map.map.tileheight)
-                else
-                    top = math.ceil(topRight[2] / Map.map.tileheight)
-                end
-                if topRight[1] > bottomRight[1] then
-                    right = math.ceil(topRight[1] / Map.map.tilewidth)
-                else
-                    right = math.ceil(bottomRight[1] / Map.map.tilewidth)
-                end
-                if bottomRight[2] > bottomLeft[2] then
-                    bottom = math.ceil(bottomRight[2] / Map.map.tileheight)
-                else
-                    bottom = math.ceil(bottomLeft[2] / Map.map.tileheight)
-                end						
-                Map.masterGroup[layer].vars.camera = {left, top, right, bottom}
-                if left > prevRight or right < prevLeft or top > prevBottom or bottom < prevTop then
-                    --print("do3", layer, "==================================")
-                    --print(" ", left, prevLeft)
-                    --print(" ", top, prevTop)
-                    --print(" ", right, prevRight)
-                    --print(" ", bottom, prevBottom)
-                    for locX = prevLeft, prevRight, 1 do
-                        for locY = prevTop, prevBottom, 1 do
-                            --print("do4")										
-                            M.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
-                            cullLargeTile(locX, locY, layer)
-                        end
-                    end
-                    for locX = left, right, 1 do
-                        for locY = top, bottom, 1 do		
-                            --print("do5")								
-                            M.updateTile({locX = locX, locY = locY, layer = layer})
-                            drawCulledObjects(locX, locY, layer)
-                            drawLargeTile(locX, locY, layer)
-                        end
-                    end
-                    --print("=============")
-                else
-                    --left
-                    if left > prevLeft then		--cull
-                        local tLeft = left
-                        for locX = prevLeft, tLeft - 1, 1 do
-                            for locY = prevTop, prevBottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
-                                cullLargeTile(locX, locY, layer)
-                            end
-                        end
-                    elseif left < prevLeft then	--render
-                        local tLeft = prevLeft
-                        for locX = left, tLeft - 1, 1 do
-                            for locY = top, bottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer})
-                                drawCulledObjects(locX, locY, layer)
-                                drawLargeTile(locX, locY, layer)
-                            end
-                        end
-                    end				
-                    --top
-                    if top > prevTop then		--cull
-                        local tTop = top
-                        for locX = prevLeft, prevRight, 1 do
-                            for locY = prevTop, tTop - 1, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
-                                cullLargeTile(locX, locY, layer)
-                            end
-                        end
-                    elseif top < prevTop then	--render
-                        local tTop = prevTop
-                        for locX = left, right, 1 do
-                            for locY = top, tTop - 1, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer})
-                                drawCulledObjects(locX, locY, layer)
-                                drawLargeTile(locX, locY, layer)
-                            end
-                        end
-                    end				
-                    --right
-                    if right > prevRight then		--render
-                        local tRight = prevRight
-                        for locX = tRight + 1, right, 1 do
-                            for locY = top, bottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer})
-                                drawCulledObjects(locX, locY, layer)
-                                drawLargeTile(locX, locY, layer)
-                            end
-                        end
-                    elseif right < prevRight then	--cull
-                        local tRight = right
-                        for locX = tRight + 1, prevRight, 1 do
-                            for locY = prevTop, prevBottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
-                                cullLargeTile(locX, locY, layer)
-                            end
-                        end
-                    end				
-                    --bottom
-                    if bottom > prevBottom then		--render
-                        local tBottom = prevBottom
-                        for locX = left, right, 1 do
-                            for locY = tBottom + 1, bottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer})
-                                drawCulledObjects(locX, locY, layer)
-                                drawLargeTile(locX, locY, layer)
-                            end
-                        end
-                    elseif bottom < prevBottom then	--cull
-                        local tBottom = bottom
-                        for locX = prevLeft, prevRight, 1 do
-                            for locY = tBottom + 1, prevBottom, 1 do
-                                M.updateTile({locX = locX, locY = locY, layer = layer, tile = -1})
-                                cullLargeTile(locX, locY, layer)
-                            end
-                        end
-                    end
-                end				
-            end
-        end
-    end
-    
-    --PROCESS TILE ANIMATIONS
-    if not M.tileAnimsFrozen then
-        for key,value in pairs(syncData) do
-            syncData[key].counter = syncData[key].counter - 1
-            if syncData[key].counter <= 0 then
-                syncData[key].counter = syncData[key].time
-                syncData[key].currentFrame = syncData[key].currentFrame + 1
-                if syncData[key].currentFrame > #syncData[key].frames then
-                    syncData[key].currentFrame = 1
-                end
-            end
-        end
-        for key,value in pairs(Map.animatedTiles) do
-            if syncData[Map.animatedTiles[key].sync] then
-                Map.animatedTiles[key]:setFrame(syncData[Map.animatedTiles[key].sync].currentFrame)
-            end
-        end
-    end
-    
-    --APPLY HEIGHTMAP
-    if Map.enableHeightMap then
-        for i = 1, #Map.map.layers, 1 do
-            if Map.map.layers[i].heightMap or Map.map.heightMap then
-                local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-                local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-                local mH = Map.map.layers[i].heightMap
-                local gH = Map.map.heightMap
-                for x = Map.masterGroup[i].vars.camera[1], Map.masterGroup[i].vars.camera[3], 1 do
-                    for y = Map.masterGroup[i].vars.camera[2], Map.masterGroup[i].vars.camera[4], 1 do
-                        local locX = x
-                        local locY = y
-                        if locX < 1 - Map.map.locOffsetX then
-                            locX = locX + Map.map.layers[i].width
-                        end
-                        if locX > Map.map.layers[i].width - Map.map.locOffsetX then
-                            locX = locX - Map.map.layers[i].width
-                        end										
-                        if locY < 1 - Map.map.locOffsetY then
-                            locY = locY + Map.map.layers[i].height
-                        end
-                        if locY > Map.map.layers[i].height - Map.map.locOffsetY then
-                            locY = locY - Map.map.layers[i].height
-                        end
-                        if Map.tileObjects[i][locX] and Map.tileObjects[i][locX][locY] then
-                            local rect = Map.tileObjects[i][locX][locY]								
-                            local rectX = rect.x
-                            local rectY = rect.y
-                            local tempScaleX = rect.tempScaleX / 2
-                            local tempScaleY = rect.tempScaleY / 2
-                            local rP = rect.path
-                            if rect.heightMap then
-                                local hM = rect.heightMap									
-                                local x1, y1, x2, y2, x3, y3, x4, y4 = "x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"
-                                local a1, b1, a2, b2, a3, b3, a4, b4 = -1, -1, -1, -1, -1, -1, -1, -1									
-                                if Map.enableFlipRotation then
-                                    if Map.map.layers[i].flipRotation[locX][locY] then
-                                        local command = Map.map.layers[i].flipRotation[locX][locY]
-                                        if command == 3 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y4", "x4", "y1", "x1", "y2", "x2", "y3", "x3"
-                                            b1, b2, b3, b4 = 1, 1, 1, 1
-                                        elseif command == 5 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y2", "x2", "y3", "x3", "y4", "x4", "y1", "x1"
-                                            a1, a2, a3, a4 = 1, 1, 1, 1
-                                        elseif command == 6 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x3", "y3", "x4", "y4", "x1", "y1", "x2", "y2"
-                                            a1, b1, a2, b2, a3, b3, a4, b4 = 1, 1, 1, 1, 1, 1, 1, 1
-                                        elseif command == 2 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x2", "y2", "x1", "y1", "x4", "y4", "x3", "y3"
-                                            b1, b2, b3, b4 = 1, 1, 1, 1
-                                        elseif command == 4 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x4", "y4", "x3", "y3", "x2", "y2", "x1", "y1"
-                                            a1, a2, a3, a4 = 1, 1, 1, 1
-                                        elseif command == 1 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y1", "x1", "y4", "x4", "y3", "x3", "y2", "x2"
-                                        elseif command == 7 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y3", "x3", "y2", "x2", "y1", "x1", "y4", "x4"
-                                            a1, b1, a2, b2, a3, b3, a4, b4 = 1, 1, 1, 1, 1, 1, 1, 1
-                                        end
-                                    end
-                                end									
-                                rP["x1"] = (((cameraX - (rectX - tempScaleX)) * (1 + (hM[1] or 0))) - (cameraX - (rectX - tempScaleX))) * a1 - Map.overDraw
-                                rP["y1"] = (((cameraY - (rectY - tempScaleY)) * (1 + (hM[1] or 0))) - (cameraY - (rectY - tempScaleY))) * b1 - Map.overDraw									
-                                rP["x2"] = (((cameraX - (rectX - tempScaleX)) * (1 + (hM[2] or 0))) - (cameraX - (rectX - tempScaleX))) * a2 - Map.overDraw
-                                rP["y2"] = (((cameraY - (rectY + tempScaleY)) * (1 + (hM[2] or 0))) - (cameraY - (rectY + tempScaleY))) * b2 + Map.overDraw									
-                                rP["x3"] = (((cameraX - (rectX + tempScaleX)) * (1 + (hM[3] or 0))) - (cameraX - (rectX + tempScaleX))) * a3 + Map.overDraw
-                                rP["y3"] = (((cameraY - (rectY + tempScaleY)) * (1 + (hM[3] or 0))) - (cameraY - (rectY + tempScaleY))) * b3 + Map.overDraw									
-                                rP["x4"] = (((cameraX - (rectX + tempScaleX)) * (1 + (hM[4] or 0))) - (cameraX - (rectX + tempScaleX))) * a4 + Map.overDraw
-                                rP["y4"] = (((cameraY - (rectY - tempScaleY)) * (1 + (hM[4] or 0))) - (cameraY - (rectY - tempScaleY))) * b4 - Map.overDraw
-                            else
-                                local locXminus1 = locX - 1
-                                local locYminus1 = locY - 1
-                                local locXplus1 = locX + 1
-                                local locYplus1 = locY + 1									
-                                if Map.map.heightMap then
-                                    mH = gH
-                                end									
-                                if locXminus1 < 1 then
-                                    locXminus1 = #mH
-                                end								
-                                if locYminus1 < 1 then
-                                    locYminus1 = #mH[locX]
-                                end	
-                                if locXplus1 > #mH then
-                                    locXplus1 = 1
-                                end								
-                                if locYplus1 > #mH[locX] then
-                                    locYplus1 = 1
-                                end										
-                                local x1, y1, x2, y2, x3, y3, x4, y4 = "x1", "y1", "x2", "y2", "x3", "y3", "x4", "y4"
-                                local a1, b1, a2, b2, a3, b3, a4, b4 = -1, -1, -1, -1, -1, -1, -1, -1									
-                                if Map.enableFlipRotation then
-                                    if Map.map.layers[i].flipRotation[locX][locY] then
-                                        local command = Map.map.layers[i].flipRotation[locX][locY]
-                                        if command == 3 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y4", "x4", "y1", "x1", "y2", "x2", "y3", "x3"
-                                            b1, b2, b3, b4 = 1, 1, 1, 1
-                                        elseif command == 5 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y2", "x2", "y3", "x3", "y4", "x4", "y1", "x1"
-                                            a1, a2, a3, a4 = 1, 1, 1, 1
-                                        elseif command == 6 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x3", "y3", "x4", "y4", "x1", "y1", "x2", "y2"
-                                            a1, b1, a2, b2, a3, b3, a4, b4 = 1, 1, 1, 1, 1, 1, 1, 1
-                                        elseif command == 2 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x2", "y2", "x1", "y1", "x4", "y4", "x3", "y3"
-                                            b1, b2, b3, b4 = 1, 1, 1, 1
-                                        elseif command == 4 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "x4", "y4", "x3", "y3", "x2", "y2", "x1", "y1"
-                                            a1, a2, a3, a4 = 1, 1, 1, 1
-                                        elseif command == 1 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y1", "x1", "y4", "x4", "y3", "x3", "y2", "x2"
-                                        elseif command == 7 then
-                                            x1, y1, x2, y2, x3, y3, x4, y4 = "y3", "x3", "y2", "x2", "y1", "x1", "y4", "x4"
-                                            a1, b1, a2, b2, a3, b3, a4, b4 = 1, 1, 1, 1, 1, 1, 1, 1
-                                        end
-                                    end
-                                end	 									
-                                local tempHeight = ((mH[locX][locY] or 0) + (mH[locXminus1][locY] or 0) + (mH[locX][locYminus1] or 0) + (mH[locXminus1][locYminus1] or 0)) / 4
-                                rP[x1] = (((cameraX - (rectX - tempScaleX)) * (1 + tempHeight)) - (cameraX - (rectX - tempScaleX))) * a1 - Map.overDraw
-                                rP[y1] = (((cameraY - (rectY - tempScaleY)) * (1 + tempHeight)) - (cameraY - (rectY - tempScaleY))) * b1 - Map.overDraw																
-                                local tempHeight = ((mH[locX][locY] or 0) + (mH[locXminus1][locY] or 0) + (mH[locX][locYplus1] or 0) + (mH[locXminus1][locYplus1] or 0)) / 4
-                                rP[x2] = (((cameraX - (rectX - tempScaleX)) * (1 + tempHeight)) - (cameraX - (rectX - tempScaleX))) * a2 - Map.overDraw
-                                rP[y2] = (((cameraY - (rectY + tempScaleY)) * (1 + tempHeight)) - (cameraY - (rectY + tempScaleY))) * b2 + Map.overDraw															
-                                local tempHeight = ((mH[locX][locY] or 0) + (mH[locXplus1][locY] or 0) + (mH[locX][locYplus1] or 0) + (mH[locXplus1][locYplus1] or 0)) / 4
-                                rP[x3] = (((cameraX - (rectX + tempScaleX)) * (1 + tempHeight)) - (cameraX - (rectX + tempScaleX))) * a3 + Map.overDraw
-                                rP[y3] = (((cameraY - (rectY + tempScaleY)) * (1 + tempHeight)) - (cameraY - (rectY + tempScaleY))) * b3 + Map.overDraw															
-                                local tempHeight = ((mH[locX][locY] or 0) + (mH[locXplus1][locY] or 0) + (mH[locX][locYminus1] or 0) + (mH[locXplus1][locYminus1] or 0)) / 4
-                                rP[x4] = (((cameraX - (rectX + tempScaleX)) * (1 + tempHeight)) - (cameraX - (rectX + tempScaleX))) * a4 + Map.overDraw
-                                rP[y4] = (((cameraY - (rectY - tempScaleY)) * (1 + tempHeight)) - (cameraY - (rectY - tempScaleY))) * b4 - Map.overDraw
-                            end
-                            --------
-                        end
-                    end
-                end
-            end
-        end
-    end
-    
-    local updated = false
-    if M.enableLighting then
-        if Light.lightingData.refreshStyle == 1 then
-            --continuous
-            local mapLayerFalloff = Map.map.properties.lightLayerFalloff
-            local mapLevelFalloff = Map.map.properties.lightLevelFalloff			
-            local startLocX = Map.masterGroup[1].vars.camera[1]
-            local startLocY = Map.masterGroup[1].vars.camera[2]
-            local endLocX = Map.masterGroup[1].vars.camera[3]
-            local endLocY = Map.masterGroup[1].vars.camera[4]				
-            for x = startLocX, endLocX, 1 do
-                for y = startLocY, endLocY, 1 do
-                    local updated = true
-                    local checked = false
-                    local locX, locY = x, y
-                    for i = 1, #Map.map.layers, 1 do
-                        if Camera.layerWrapX[i] then
-                            if locX < 1 - Map.map.locOffsetX then
-                                locX = locX + Map.map.layers[i].width
-                            elseif locX > Map.map.layers[i].width - Map.map.locOffsetX then
-                                locX = locX - Map.map.layers[i].width
-                            end
-                        end
-                        if Camera.layerWrapY[i] then
-                            if locY < 1 - Map.map.locOffsetY then
-                                locY = locY + Map.map.layers[i].height
-                            elseif locY > Map.map.layers[i].height - Map.map.locOffsetY then
-                                locY = locY - Map.map.layers[i].height
-                            end
-                        end
-                        if Map.tileObjects[i][locX] and Map.tileObjects[i][locX][locY] then
-                            local rect = Map.tileObjects[i][locX][locY]								
-                            if not rect.noDraw then	
-                                --Normal Map Point Light
-                                if rect.normalMap and Light.pointLightSource then
-                                    local lightX = Light.pointLightSource.x
-                                    local lightY = Light.pointLightSource.y
-                                    if Light.pointLightSource.pointLight then
-                                        if Light.pointLightSource.pointLight.pointLightPos then
-                                            rect.fill.effect.pointLightPos = {((lightX + Light.pointLightSource.pointLight.pointLightPos[1]) - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
-                                                ((lightY + Light.pointLightSource.pointLight.pointLightPos[2]) - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
-                                                Light.pointLightSource.pointLight.pointLightPos[3]
-                                            }
-                                        else
-                                            rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
-                                                (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
-                                                0.1
-                                            }
-                                        end
-                                        if Light.pointLightSource.pointLight.pointLightColor then
-                                            rect.fill.effect.pointLightColor = Light.pointLightSource.pointLight.pointLightColor
-                                        end
-                                        if Light.pointLightSource.pointLight.ambientLightIntensity then
-                                            rect.fill.effect.ambientLightIntensity = Light.pointLightSource.pointLight.ambientLightIntensity
-                                        end
-                                        if Light.pointLightSource.pointLight.attenuationFactors then
-                                            rect.fill.effect.attenuationFactors = Light.pointLightSource.pointLight.attenuationFactors
-                                        end 
-                                    else
-                                        rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
-                                            (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
-                                            0.1
-                                        }
-                                    end
-                                end
-                                
-                                --Tile Lighting							
-                                if Map.map.lightToggle[locX][locY] and Map.map.lightToggle[locX][locY] > Map.map.lightToggle2[locX][locY] then
-                                    rect.litBy = {}
-                                    checked = true
-                                    local layer = i
-                                    local redf, greenf, bluef = Map.map.layers[layer].redLight, Map.map.layers[layer].greenLight, Map.map.layers[layer].blueLight
-                                    if Map.map.perlinLighting then
-                                        redf = redf * Map.map.perlinLighting[locX][locY]
-                                        greenf = greenf * Map.map.perlinLighting[locX][locY]
-                                        bluef = bluef * Map.map.perlinLighting[locX][locY]
-                                    elseif Map.map.layers[layer].perlinLighting then
-                                        redf = redf * Map.map.layers[layer].perlinLighting[locX][locY]
-                                        greenf = greenf * Map.map.layers[layer].perlinLighting[locX][locY]
-                                        bluef = bluef * Map.map.layers[layer].perlinLighting[locX][locY]
-                                    end
-                                    for k = 1, #Map.map.layers, 1 do									
-                                        if Map.map.layers[k].lighting[locX][locY] then
-                                            local temp = Map.map.layers[k].lighting[locX][locY]
-                                            for key,value in pairs(temp) do
-                                                local levelDiff = math.abs(M.getLevel(i) - Map.map.lights[key].level)
-                                                local layerDiff = math.abs(i - Map.map.lights[key].layer)											
-                                                local layerFalloff, levelFalloff
-                                                if Map.map.lights[key].layerFalloff then
-                                                    layerFalloff = Map.map.lights[key].layerFalloff
-                                                else
-                                                    layerFalloff = mapLayerFalloff
-                                                end											
-                                                if Map.map.lights[key].levelFalloff then
-                                                    levelFalloff = Map.map.lights[key].levelFalloff
-                                                else
-                                                    levelFalloff = mapLevelFalloff
-                                                end											
-                                                local tR = temp[key].light[1] - (levelDiff * levelFalloff[1]) - (layerDiff * layerFalloff[1])
-                                                local tG = temp[key].light[2] - (levelDiff * levelFalloff[2]) - (layerDiff * layerFalloff[2])
-                                                local tB = temp[key].light[3] - (levelDiff * levelFalloff[3]) - (layerDiff * layerFalloff[3])
-                                                if tR > redf then
-                                                    redf = tR
-                                                end
-                                                if tG > greenf then
-                                                    greenf = tG
-                                                end
-                                                if tB > bluef then
-                                                    bluef = tB
-                                                end													
-                                                rect.litBy[#rect.litBy + 1] = key
-                                            end
-                                        end
-                                    end								
-                                    local check = 0
-                                    if redf > rect.color[1] then
-                                        if redf - rect.color[1] <= Light.lightingData.fadeIn then
-                                            rect.color[1] = redf
-                                            check = check + 1
-                                        else
-                                            rect.color[1] = rect.color[1] + Light.lightingData.fadeIn
-                                        end
-                                    elseif redf < rect.color[1] then
-                                        if rect.color[1] - redf <= Light.lightingData.fadeOut then
-                                            rect.color[1] = redf
-                                            check = check + 1
-                                        else
-                                            rect.color[1] = rect.color[1] - Light.lightingData.fadeOut
-                                        end
-                                    else
-                                        check = check + 1
-                                    end							
-                                    if rect.color[1] > 1 then
-                                        rect.color[1] = 1
-                                    elseif rect.color[1] < 0 then
-                                        rect.color[1] = 0
-                                    end						
-                                    if greenf > rect.color[2] then
-                                        if greenf - rect.color[2] < Light.lightingData.fadeIn then
-                                            rect.color[2] = greenf
-                                            check = check + 1
-                                        else
-                                            rect.color[2] = rect.color[2] + Light.lightingData.fadeIn
-                                        end
-                                    elseif greenf < rect.color[2] then
-                                        if rect.color[2] - greenf < Light.lightingData.fadeOut then
-                                            rect.color[2] = greenf
-                                            check = check + 1
-                                        else
-                                            rect.color[2] = rect.color[2] - Light.lightingData.fadeOut
-                                        end
-                                    else
-                                        check = check + 1
-                                    end							
-                                    if rect.color[2] > 1 then
-                                        rect.color[2] = 1
-                                    elseif rect.color[2] < 0 then
-                                        rect.color[2] = 0
-                                    end													
-                                    if bluef > rect.color[3] then
-                                        if bluef - rect.color[3] < Light.lightingData.fadeIn then
-                                            rect.color[3] = bluef
-                                            check = check + 1
-                                        else
-                                            rect.color[3] = rect.color[3] + Light.lightingData.fadeIn
-                                        end
-                                    elseif bluef < rect.color[3] then
-                                        if rect.color[3] - bluef < Light.lightingData.fadeOut then
-                                            rect.color[3] = bluef
-                                            check = check + 1
-                                        else
-                                            rect.color[3] = rect.color[3] - Light.lightingData.fadeOut
-                                        end
-                                    else
-                                        check = check + 1
-                                    end							
-                                    if rect.color[3] > 1 then
-                                        rect.color[3] = 1
-                                    elseif rect.color[3] < 0 then
-                                        rect.color[3] = 0
-                                    end								
-                                    if check < 3 then
-                                        updated = false
-                                    end										
-                                    rect:setFillColor(rect.color[1], rect.color[2], rect.color[3])
-                                end								
-                            end
-                        end
-                    end
-                    if checked and updated then
-                        Map.map.lightToggle2[locX][locY] = tonumber(system.getTimer())
-                    end
-                end
-            end
-        elseif Light.lightingData.refreshStyle == 2 then
-            --columns alternator
-            local mapLayerFalloff = Map.map.properties.lightLayerFalloff
-            local mapLevelFalloff = Map.map.properties.lightLevelFalloff				
-            local startLocX = Map.masterGroup[1].vars.camera[1]
-            local startLocY = Map.masterGroup[1].vars.camera[2]
-            local endLocX = Map.masterGroup[1].vars.camera[3]
-            local endLocY = Map.masterGroup[1].vars.camera[4]						
-            local startX = startLocX + (Light.lightingData.refreshCounter - 1)
-            for x = startX, endLocX, Light.lightingData.refreshAlternator do
-                for y = startLocY, endLocY, 1 do
-                    local updated = true
-                    local checked = false
-                    local locX, locY = x, y
-                    for i = 1, #Map.map.layers, 1 do
-                        if Camera.layerWrapX[i] then
-                            if locX < 1 - Map.map.locOffsetX then
-                                locX = locX + Map.map.layers[i].width
-                            elseif locX > Map.map.layers[i].width - Map.map.locOffsetX then
-                                locX = locX - Map.map.layers[i].width
-                            end
-                        end
-                        if Camera.layerWrapY[i] then
-                            if locY < 1 - Map.map.locOffsetY then
-                                locY = locY + Map.map.layers[i].height
-                            elseif locY > Map.map.layers[i].height - Map.map.locOffsetY then
-                                locY = locY - Map.map.layers[i].height
-                            end
-                        end
-                        if Map.tileObjects[i][locX] and Map.tileObjects[i][locX][locY] then
-                            local rect = Map.tileObjects[i][locX][locY]								
-                            if not rect.noDraw then		
-                                --Normal Map Point Light
-                                if rect.normalMap and Light.pointLightSource then
-                                    local lightX = Light.pointLightSource.x
-                                    local lightY = Light.pointLightSource.y
-                                    if Light.pointLightSource.pointLight then
-                                        if Light.pointLightSource.pointLight.pointLightPos then
-                                            rect.fill.effect.pointLightPos = {((lightX + Light.pointLightSource.pointLight.pointLightPos[1]) - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
-                                                ((lightY + Light.pointLightSource.pointLight.pointLightPos[2]) - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
-                                                Light.pointLightSource.pointLight.pointLightPos[3]
-                                            }
-                                        else
-                                            rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
-                                                (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
-                                                0.1
-                                            }
-                                        end
-                                        if Light.pointLightSource.pointLight.pointLightColor then
-                                            rect.fill.effect.pointLightColor = Light.pointLightSource.pointLight.pointLightColor
-                                        end
-                                        if Light.pointLightSource.pointLight.ambientLightIntensity then
-                                            rect.fill.effect.ambientLightIntensity = Light.pointLightSource.pointLight.ambientLightIntensity
-                                        end
-                                        if Light.pointLightSource.pointLight.attenuationFactors then
-                                            rect.fill.effect.attenuationFactors = Light.pointLightSource.pointLight.attenuationFactors
-                                        end 
-                                    else
-                                        rect.fill.effect.pointLightPos = {(lightX - rect.x + Map.map.tilewidth / 2) / Map.map.tilewidth, 
-                                            (lightY - rect.y + Map.map.tileheight / 2) / Map.map.tileheight, 
-                                            0.1
-                                        }
-                                        
-                                    end
-                                end
-                                
-                                --Tile Lighting						
-                                if Map.map.lightToggle[locX][locY] and Map.map.lightToggle[locX][locY] > Map.map.lightToggle2[locX][locY] then
-                                    rect.litBy = {}
-                                    checked = true
-                                    local layer = i
-                                    local redf, greenf, bluef = Map.map.layers[layer].redLight, Map.map.layers[layer].greenLight, Map.map.layers[layer].blueLight
-                                    if Map.map.perlinLighting then
-                                        redf = redf * Map.map.perlinLighting[locX][locY]
-                                        greenf = greenf * Map.map.perlinLighting[locX][locY] 
-                                        bluef = bluef * Map.map.perlinLighting[locX][locY] 
-                                    elseif Map.map.layers[layer].perlinLighting then
-                                        redf = redf * Map.map.layers[layer].perlinLighting[locX][locY] 
-                                        greenf = greenf * Map.map.layers[layer].perlinLighting[locX][locY] 
-                                        bluef = bluef * Map.map.layers[layer].perlinLighting[locX][locY] 
-                                    end
-                                    for k = 1, #Map.map.layers, 1 do									
-                                        if Map.map.layers[k].lighting[locX][locY] then
-                                            local temp = Map.map.layers[k].lighting[locX][locY]
-                                            for key,value in pairs(temp) do
-                                                local levelDiff = math.abs(M.getLevel(i) - Map.map.lights[key].level)
-                                                local layerDiff = math.abs(i - Map.map.lights[key].layer)											
-                                                local layerFalloff, levelFalloff
-                                                if Map.map.lights[key].layerFalloff then
-                                                    layerFalloff = Map.map.lights[key].layerFalloff
-                                                else
-                                                    layerFalloff = mapLayerFalloff
-                                                end											
-                                                if Map.map.lights[key].levelFalloff then
-                                                    levelFalloff = Map.map.lights[key].levelFalloff
-                                                else
-                                                    levelFalloff = mapLevelFalloff
-                                                end											
-                                                local tR = temp[key].light[1] - (levelDiff * levelFalloff[1]) - (layerDiff * layerFalloff[1])
-                                                local tG = temp[key].light[2] - (levelDiff * levelFalloff[2]) - (layerDiff * layerFalloff[2])
-                                                local tB = temp[key].light[3] - (levelDiff * levelFalloff[3]) - (layerDiff * layerFalloff[3])
-                                                if tR > redf then
-                                                    redf = tR
-                                                end
-                                                if tG > greenf then
-                                                    greenf = tG
-                                                end
-                                                if tB > bluef then
-                                                    bluef = tB
-                                                end													
-                                                rect.litBy[#rect.litBy + 1] = key
-                                            end
-                                        end
-                                    end								
-                                    local check = 0
-                                    if redf > rect.color[1] then
-                                        if redf - rect.color[1] <= Light.lightingData.fadeIn then
-                                            rect.color[1] = redf
-                                            check = check + 1
-                                        else
-                                            rect.color[1] = rect.color[1] + Light.lightingData.fadeIn
-                                        end
-                                    elseif redf < rect.color[1] then
-                                        if rect.color[1] - redf <= Light.lightingData.fadeOut then
-                                            rect.color[1] = redf
-                                            check = check + 1
-                                        else
-                                            rect.color[1] = rect.color[1] - Light.lightingData.fadeOut
-                                        end
-                                    else
-                                        check = check + 1
-                                    end							
-                                    if rect.color[1] > 1 then
-                                        rect.color[1] = 1
-                                    elseif rect.color[1] < 0 then
-                                        rect.color[1] = 0
-                                    end						
-                                    if greenf > rect.color[2] then
-                                        if greenf - rect.color[2] < Light.lightingData.fadeIn then
-                                            rect.color[2] = greenf
-                                            check = check + 1
-                                        else
-                                            rect.color[2] = rect.color[2] + Light.lightingData.fadeIn
-                                        end
-                                    elseif greenf < rect.color[2] then
-                                        if rect.color[2] - greenf < Light.lightingData.fadeOut then
-                                            rect.color[2] = greenf
-                                            check = check + 1
-                                        else
-                                            rect.color[2] = rect.color[2] - Light.lightingData.fadeOut
-                                        end
-                                    else
-                                        check = check + 1
-                                    end							
-                                    if rect.color[2] > 1 then
-                                        rect.color[2] = 1
-                                    elseif rect.color[2] < 0 then
-                                        rect.color[2] = 0
-                                    end													
-                                    if bluef > rect.color[3] then
-                                        if bluef - rect.color[3] < Light.lightingData.fadeIn then
-                                            rect.color[3] = bluef
-                                            check = check + 1
-                                        else
-                                            rect.color[3] = rect.color[3] + Light.lightingData.fadeIn
-                                        end
-                                    elseif bluef < rect.color[3] then
-                                        if rect.color[3] - bluef < Light.lightingData.fadeOut then
-                                            rect.color[3] = bluef
-                                            check = check + 1
-                                        else
-                                            rect.color[3] = rect.color[3] - Light.lightingData.fadeOut
-                                        end
-                                    else
-                                        check = check + 1
-                                    end							
-                                    if rect.color[3] > 1 then
-                                        rect.color[3] = 1
-                                    elseif rect.color[3] < 0 then
-                                        rect.color[3] = 0
-                                    end								
-                                    if check < 3 then
-                                        updated = false
-                                    end										
-                                    rect:setFillColor(rect.color[1], rect.color[2], rect.color[3])
-                                end								
-                            end
-                        end
-                    end
-                    if checked and updated then
-                        Map.map.lightToggle2[locX][locY] = tonumber(system.getTimer())
-                    end
-                end
-            end
-            Light.lightingData.refreshCounter = Light.lightingData.refreshCounter + 1
-            if Light.lightingData.refreshCounter > Light.lightingData.refreshAlternator then
-                Light.lightingData.refreshCounter = 1
-            end
-        end
-    end
-    
-    --Fade and Tint layers
-    for i = 1, #Map.map.layers, 1 do
-        if Map.masterGroup[i].vars.deltaFade then
-            Map.masterGroup[i].vars.tempAlpha = Map.masterGroup[i].vars.tempAlpha - Map.masterGroup[i].vars.deltaFade[1]
-            if Map.masterGroup[i].vars.tempAlpha > 1 then
-                Map.masterGroup[i].vars.tempAlpha = 1
-            end
-            if Map.masterGroup[i].vars.tempAlpha < 0 then
-                Map.masterGroup[i].vars.tempAlpha = 0
-            end
-            if Map.map.orientation == Map.Type.Isometric then
-                if Map.isoSort == 1 then
-                    Map.masterGroup[i].alpha = Map.masterGroup[i].vars.tempAlpha
-                    Map.masterGroup[i].vars.alpha = Map.masterGroup[i].vars.tempAlpha
-                else
-                    for row = 1, #displayGroups, 1 do
-                        displayGroups[row].layers[i].alpha = Map.masterGroup[i].vars.tempAlpha
-                    end
-                end
-            else
-                Map.masterGroup[i].alpha = Map.masterGroup[i].vars.tempAlpha
-            end
-            Map.masterGroup[i].vars.alpha = Map.masterGroup[i].vars.tempAlpha
-            table.remove(Map.masterGroup[i].vars.deltaFade, 1)
-            if not Map.masterGroup[i].vars.deltaFade[1] then
-                Map.masterGroup[i].vars.deltaFade = nil
-                Map.masterGroup[i].vars.tempAlpha = nil
-            end
-        end
-        if Map.masterGroup[i].vars.deltaTint then
-            Map.map.layers[i].redLight = Map.map.layers[i].redLight - Map.masterGroup[i].vars.deltaTint[1][1]
-            Map.map.layers[i].greenLight = Map.map.layers[i].greenLight - Map.masterGroup[i].vars.deltaTint[2][1]
-            Map.map.layers[i].blueLight = Map.map.layers[i].blueLight - Map.masterGroup[i].vars.deltaTint[3][1]				
-            for x = Map.masterGroup[i].vars.camera[1], Map.masterGroup[i].vars.camera[3], 1 do
-                for y = Map.masterGroup[i].vars.camera[2], Map.masterGroup[i].vars.camera[4], 1 do
-                    if Map.tileObjects[i][x] and Map.tileObjects[i][x][y] and not Map.tileObjects[i][x][y].noDraw then
-                        Map.tileObjects[i][x][y]:setFillColor(Map.map.layers[i].redLight, Map.map.layers[i].greenLight, Map.map.layers[i].blueLight)
-                        if not Map.tileObjects[i][x][y].currentColor then
-                            Map.tileObjects[i][x][y].currentColor = {Map.map.layers[i].redLight, 
-                                Map.map.layers[i].greenLight, 
-                                Map.map.layers[i].blueLight
-                            }
-                        end
-                    end
-                end
-            end				
-            table.remove(Map.masterGroup[i].vars.deltaTint[1], 1)
-            table.remove(Map.masterGroup[i].vars.deltaTint[2], 1)
-            table.remove(Map.masterGroup[i].vars.deltaTint[3], 1)
-            if not Map.masterGroup[i].vars.deltaTint[1][1] then
-                Map.masterGroup[i].vars.deltaTint = nil
-            end
-        end
-        if Map.masterGroup[i].alpha <= 0 and Map.masterGroup[i].isVisible then
-            Map.masterGroup[i].isVisible = false
-            Map.masterGroup[i].vars.isVisible = false
-        elseif Map.masterGroup[i].alpha > 0 and not Map.masterGroup[i].isVisible then
-            Map.masterGroup[i].isVisible = true
-            Map.masterGroup[i].vars.isVisible = true
-        end
-    end
-    
-    --Fade tiles
-    for key,value in pairs(Map.fadingTiles) do
-        local tile = Map.fadingTiles[key]
-        tile.tempAlpha = tile.tempAlpha - tile.deltaFade[1]
-        if tile.tempAlpha > 1 then
-            tile.tempAlpha = 1
-        end
-        if tile.tempAlpha < 0 then
-            tile.tempAlpha = 0
-        end
-        tile.alpha = tile.tempAlpha
-        table.remove(tile.deltaFade, 1)
-        if not tile.deltaFade[1] then
-            tile.deltaFade = nil
-            tile.tempAlpha = nil
-            Map.fadingTiles[tile] = nil
-        end
-    end
-    
-    --Tint tiles
-    for key,value in pairs(Map.tintingTiles) do
-        local tile = Map.tintingTiles[key]
-        if Map.tileObjects[tile.layer][tile.locX] and Map.tileObjects[tile.layer][tile.locX][tile.locY] then
-            tile.currentColor[1] = tile.currentColor[1] - tile.deltaTint[1][1]
-            tile.currentColor[2] = tile.currentColor[2] - tile.deltaTint[2][1]
-            tile.currentColor[3] = tile.currentColor[3] - tile.deltaTint[3][1]
-            for i = 1, 3, 1 do
-                if tile.currentColor[i] > 1 then
-                    tile.currentColor[i] = 1
-                end
-                if tile.currentColor[i] < 0 then
-                    tile.currentColor[i] = 0
-                end
-            end
-            tile:setFillColor(tile.currentColor[1], tile.currentColor[2], tile.currentColor[3])
-            table.remove(tile.deltaTint[1], 1)
-            table.remove(tile.deltaTint[2], 1)
-            table.remove(tile.deltaTint[3], 1)
-            if not tile.deltaTint[1][1] then
-                tile.deltaTint = nil
-                Map.tintingTiles[tile] = nil
-            end
-        else
-            Map.tintingTiles[key] = nil
-        end
-    end
-    
-    --Zoom Map.map
-    if Camera.deltaZoom then
-        Camera.currentScale = Camera.currentScale - Camera.deltaZoom[1]
-        Map.masterGroup.xScale = Camera.currentScale
-        Map.masterGroup.yScale = Camera.currentScale
-        table.remove(Camera.deltaZoom, 1)
-        if not Camera.deltaZoom[1] then
-            Camera.deltaZoom = nil
-        end
-    end
-    
-    if Map.masterGroup.xScale < Camera.minZoom then
-        Map.masterGroup.xScale = Camera.minZoom
-    elseif Map.masterGroup.xScale > Camera.maxZoom then
-        Map.masterGroup.xScale = Camera.maxZoom
-    end
-    
-    if Map.masterGroup.yScale < Camera.minZoom then
-        Map.masterGroup.yScale = Camera.minZoom
-    elseif Map.masterGroup.yScale > Camera.maxZoom then
-        Map.masterGroup.yScale = Camera.maxZoom
-    end
-    
-    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-    Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-    if Map.map.orientation == Map.Type.Isometric then
-        local isoPos = Map.isoUntransform2(Camera.McameraX, Camera.McameraY)
-        Camera.McameraX = isoPos[1]
-        Camera.McameraY = isoPos[2]
-    end
-    Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
-    Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
-end
-
------------------------------------------------------------
-
-M.setCamera = function(params)
-    if params.overDraw then
-        Map.overDraw = params.overDraw
-    end		
-    if params.parentGroup then
-        params.parentGroup:insert(Map.masterGroup)
-    end		
-    if params.scale then
-        Map.masterGroup.xScale = params.scale
-        Map.masterGroup.yScale = params.scale
-    end
-    if params.scaleX then
-        Map.masterGroup.xScale = params.scaleX
-    end
-    if params.scaleY then
-        Map.masterGroup.yScale = params.scaleY
-    end		
-    if params.blockScale then
-        Map.masterGroup.xScale = params.blockScale / Map.map.tilewidth
-        Map.masterGroup.yScale = params.blockScale / Map.map.tileheight
-    end
-    if params.blockScaleX then
-        Map.masterGroup.xScale = params.blockScaleX / Map.map.tilewidth
-    end
-    if params.blockScaleY then
-        Map.masterGroup.yScale = params.blockScaleY / Map.map.tileheight
-    end		
-    local levelPosX, levelPosY = 0, 0
-    if params.locX then
-        levelPosX = params.locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
-    end
-    if params.locY then
-        levelPosY = params.locY * Map.map.tileheight - (Map.map.tileheight / 2)
-    end
-    if params.levelPosX then
-        levelPosX = params.levelPosX
-    end
-    if params.levelPosY then
-        levelPosY = params.levelPosY
-    end		
-    if params.sprite then
-        levelPosX = params.sprite.levelPosX or params.sprite.x
-        levelPosY = params.sprite.levelPosY or params.sprite.y
-    end
-    for i = 1, Map.masterGroup.numChildren, 1 do
-        if Map.map.orientation == Map.Type.Isometric then
-            Map.masterGroup[i].x = levelPosX * -1 * Map.map.layers[i].properties.scaleX 
-            Map.masterGroup[i].y = levelPosY * -1 * Map.map.layers[i].properties.scaleY 
-        else
-            Map.masterGroup[i].x = levelPosX * -1 * Map.map.layers[i].properties.scaleX * Map.map.layers[i].parallaxX
-            Map.masterGroup[i].y = levelPosY * -1 * Map.map.layers[i].properties.scaleY * Map.map.layers[i].parallaxY
-        end	
-    end		
-    if params.cullingMargin then
-        if params.cullingMargin[1] then
-            Camera.cullingMargin[1] = params.cullingMargin[1]
-        end
-        if params.cullingMargin[2] then
-            Camera.cullingMargin[2] = params.cullingMargin[2]
-        end
-        if params.cullingMargin[3] then
-            Camera.cullingMargin[3] = params.cullingMargin[3]
-        end
-        if params.cullingMargin[4] then
-            Camera.cullingMargin[4] = params.cullingMargin[4]
-        end
-    end		
-    if Map.map.orientation == Map.Type.Isometric then
-        for i = 1, #Map.map.layers, 1 do			
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-            local temp = Map.isoTransform(cameraX, cameraY)
-            Map.cameraXoffset[i] = temp[1] - cameraX
-            Map.cameraYoffset[i] = temp[2] - cameraY
-        end
-    end		
-    if not Map.masterGroup[Map.refLayer].vars.camera then
-        Sprites.spritesFrozen = true
-        Camera.McameraFrozen = true
-        M.update()
-        Sprites.spritesFrozen = false
-        Camera.McameraFrozen = false
-    end		
-    return Map.masterGroup
-end
 
 -----------------------------------------------------------
 
@@ -15635,150 +15805,6 @@ end
 
 -----------------------------------------------------------
 
-M.moveCameraTo = function(params)
-    local check = true
-    for i = 1, #Map.map.layers, 1 do
-        if i == params.layer or not params.layer then
-            if Camera.isCameraMoving[i] then
-                check = false
-            else
-                if params.disableParallax then
-                    Camera.parallaxToggle[i] = false
-                else
-                    params.disableParallax = false
-                end
-                Camera.cameraOnComplete[i] = false
-            end
-        end
-    end		
-    if check and not params.layer then
-        Camera.refMove = true
-        Camera.cameraOnComplete[1] = params.onComplete
-    end
-    for i = 1, #Map.map.layers, 1 do
-        if (i == params.layer or not params.layer) and check then
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)	
-            
-            if not params.time or params.time < 1 then
-                params.time = 1
-            end
-            local time = math.ceil(params.time / Map.frameTime)
-            local levelPosX = params.levelPosX
-            local levelPosY = params.levelPosY
-            if params.sprite then
-                if params.sprite.levelPosX then
-                    levelPosX = params.sprite.levelPosX + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
-                    levelPosY = params.sprite.levelPosY + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
-                else
-                    levelPosX = params.sprite.x + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
-                    levelPosY = params.sprite.y + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
-                end
-            end
-            if params.locX then
-                levelPosX = params.locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
-            end
-            if params.locY then
-                levelPosY = params.locY * Map.map.tileheight - (Map.map.tileheight / 2)
-            end				
-            
-            if not levelPosX then
-                levelPosX = cameraX
-            end
-            if not levelPosY then
-                levelPosY = cameraY
-            end
-            
-            if not Camera.layerWrapX[i] then
-                endX = levelPosX
-                distanceX = endX - cameraX
-                Camera.deltaX[i] = {}
-                Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
-            else
-                local tempPosX = levelPosX
-                if tempPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) then
-                    tempPosX = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
-                elseif tempPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
-                    tempPosX = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
-                end			
-                local tempPosX2 = tempPosX
-                if tempPosX > cameraX then
-                    tempPosX2 = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
-                elseif tempPosX < cameraX then
-                    tempPosX2 = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
-                end			
-                distanceXAcross = math.abs(cameraX - tempPosX)
-                distanceXWrap = math.abs(cameraX - tempPosX2)
-                if distanceXWrap < distanceXAcross then
-                    if tempPosX > cameraX then
-                        Map.masterGroup[i].x = (cameraX + Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
-                    elseif tempPosX < cameraX then
-                        Map.masterGroup[i].x = (cameraX - Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
-                    end
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                    endX = tempPosX
-                    distanceX = endX - cameraX
-                    Camera.deltaX[i] = {}
-                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
-                else
-                    endX = levelPosX
-                    distanceX = endX - cameraX
-                    Camera.deltaX[i] = {}
-                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
-                end
-            end				
-            if not Camera.layerWrapY[i] then
-                endY = levelPosY
-                distanceY = endY - cameraY
-                Camera.deltaY[i] = {}
-                Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
-            else
-                local tempPosY = levelPosY
-                if tempPosY > Map.map.layers[i].height * Map.map.tileheight then
-                    tempPosY = tempPosY - Map.map.layers[i].height * Map.map.tileheight
-                elseif tempPosY < 1 then
-                    tempPosY = tempPosY + Map.map.layers[i].height * Map.map.tileheight
-                end			
-                local tempPosY2 = tempPosY
-                if tempPosY > cameraY then
-                    tempPosY2 = tempPosY - Map.map.layers[i].height * Map.map.tileheight
-                elseif tempPosY < cameraY then
-                    tempPosY2 = tempPosY + Map.map.layers[i].height * Map.map.tileheight
-                end					
-                distanceYAcross = math.abs(cameraY - tempPosY)
-                distanceYWrap = math.abs(cameraY - tempPosY2)
-                if distanceYWrap < distanceYAcross then
-                    if tempPosY > cameraY then
-                        Map.masterGroup[i].y = (cameraY + Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
-                    elseif tempPosY < cameraY then
-                        Map.masterGroup[i].y = (cameraY - Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
-                    end
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                    endY = tempPosY
-                    distanceY = endY - cameraY
-                    Camera.deltaY[i] = {}
-                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
-                else
-                    endY = levelPosY
-                    distanceY = endY - cameraY
-                    Camera.deltaY[i] = {}
-                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
-                end
-            end				
-            Camera.isCameraMoving[i] = true
-            if not Camera.refMove then
-                Camera.cameraOnComplete[i] = params.onComplete
-            end
-        end
-    end
-end
-
------------------------------------------------------------
-
 M.moveCamera = function(velX, velY, layer)			
     if not layer then
         layer = Map.refLayer
@@ -15790,6 +15816,93 @@ M.moveCamera = function(velX, velY, layer)
     M.moveCameraTo({levelPosX = cameraX + velX,
     levelPosY = cameraY + velY, time = Map.frameTime}
     )
+end
+
+
+M.setCamera = function(params)
+    if params.overDraw then
+        Map.overDraw = params.overDraw
+    end		
+    if params.parentGroup then
+        params.parentGroup:insert(Map.masterGroup)
+    end		
+    if params.scale then
+        Map.masterGroup.xScale = params.scale
+        Map.masterGroup.yScale = params.scale
+    end
+    if params.scaleX then
+        Map.masterGroup.xScale = params.scaleX
+    end
+    if params.scaleY then
+        Map.masterGroup.yScale = params.scaleY
+    end		
+    if params.blockScale then
+        Map.masterGroup.xScale = params.blockScale / Map.map.tilewidth
+        Map.masterGroup.yScale = params.blockScale / Map.map.tileheight
+    end
+    if params.blockScaleX then
+        Map.masterGroup.xScale = params.blockScaleX / Map.map.tilewidth
+    end
+    if params.blockScaleY then
+        Map.masterGroup.yScale = params.blockScaleY / Map.map.tileheight
+    end		
+    local levelPosX, levelPosY = 0, 0
+    if params.locX then
+        levelPosX = params.locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
+    end
+    if params.locY then
+        levelPosY = params.locY * Map.map.tileheight - (Map.map.tileheight / 2)
+    end
+    if params.levelPosX then
+        levelPosX = params.levelPosX
+    end
+    if params.levelPosY then
+        levelPosY = params.levelPosY
+    end		
+    if params.sprite then
+        levelPosX = params.sprite.levelPosX or params.sprite.x
+        levelPosY = params.sprite.levelPosY or params.sprite.y
+    end
+    for i = 1, Map.masterGroup.numChildren, 1 do
+        if Map.map.orientation == Map.Type.Isometric then
+            Map.masterGroup[i].x = levelPosX * -1 * Map.map.layers[i].properties.scaleX 
+            Map.masterGroup[i].y = levelPosY * -1 * Map.map.layers[i].properties.scaleY 
+        else
+            Map.masterGroup[i].x = levelPosX * -1 * Map.map.layers[i].properties.scaleX * Map.map.layers[i].parallaxX
+            Map.masterGroup[i].y = levelPosY * -1 * Map.map.layers[i].properties.scaleY * Map.map.layers[i].parallaxY
+        end	
+    end		
+    if params.cullingMargin then
+        if params.cullingMargin[1] then
+            Camera.cullingMargin[1] = params.cullingMargin[1]
+        end
+        if params.cullingMargin[2] then
+            Camera.cullingMargin[2] = params.cullingMargin[2]
+        end
+        if params.cullingMargin[3] then
+            Camera.cullingMargin[3] = params.cullingMargin[3]
+        end
+        if params.cullingMargin[4] then
+            Camera.cullingMargin[4] = params.cullingMargin[4]
+        end
+    end		
+    if Map.map.orientation == Map.Type.Isometric then
+        for i = 1, #Map.map.layers, 1 do			
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+            local temp = Map.isoTransform(cameraX, cameraY)
+            Map.cameraXoffset[i] = temp[1] - cameraX
+            Map.cameraYoffset[i] = temp[2] - cameraY
+        end
+    end		
+    if not Map.masterGroup[Map.refLayer].vars.camera then
+        Sprites.spritesFrozen = true
+        Camera.McameraFrozen = true
+        Core.update()
+        Sprites.spritesFrozen = false
+        Camera.McameraFrozen = false
+    end		
+    return Map.masterGroup
 end
 
 -----------------------------------------------------------
@@ -16487,22 +16600,7 @@ end
 
 -----------------------------------------------------------
 
-M.removeCameraConstraints = function(layer)
-    if layer then
-        constrainLeft[layer] = nil
-        constrainTop[layer] = nil
-        constrainRight[layer] = nil
-        constrainBottom[layer] = nil
-        Map.masterGroup[layer].vars.constrainLayer = nil
-    else
-        for i = 1, #Map.map.layers, 1 do
-            constrainLeft[i] = nil
-            constrainTop[i] = nil
-            constrainRight[i] = nil
-            constrainBottom[i] = nil
-        end
-    end
-end
+
 
 -----------------------------------------------------------
 
@@ -16705,58 +16803,6 @@ end
 
 -----------------------------------------------------------
 
-M.getCamera = function(layer)
-    if Map.map.orientation == Map.Type.Isometric then
-        if layer then
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
-            local isoPos = Map.isoUntransform2(cameraX, cameraY)
-            cameraX = isoPos[1]
-            cameraY = isoPos[2]
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-            return {levelPosX = cameraX, 
-                levelPosY = cameraY, 
-                locX = cameraLocX, 
-            locY = cameraLocY}
-        else
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-            local isoPos = Map.isoUntransform2(Camera.McameraX, Camera.McameraY)
-            Camera.McameraX = isoPos[1]
-            Camera.McameraY = isoPos[2]
-            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
-            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
-            return {levelPosX = Camera.McameraX, 
-                levelPosY = Camera.McameraY, 
-                locX = Camera.McameraLocX, 
-            locY = Camera.McameraLocY}
-        end
-    else
-        if layer then
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-            return {levelPosX = cameraX, 
-                levelPosY = cameraY, 
-                locX = cameraLocX, 
-            locY = cameraLocY}
-        else
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
-            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
-            return {levelPosX = Camera.McameraX, 
-                levelPosY = Camera.McameraY, 
-                locX = Camera.McameraLocX, 
-            locY = Camera.McameraLocY}
-        end
-    end
-end
-
------------------------------------------------------------
-
 M.fadeTile = function(locX, locY, layer, alpha, time, easing)
     if not locX or not locY or not layer then
         print("ERROR: Please specify locX, locY, and layer.")
@@ -16856,7 +16902,7 @@ M.cleanup = function(unload)
         Map.mapStorage[source] = nil
     end		
     for key,value in pairs(Sprites.sprites) do
-        M.removeSprite(value)
+        Sprite.removeSprite(value)
     end
     Map.tileSets = {}	
     
