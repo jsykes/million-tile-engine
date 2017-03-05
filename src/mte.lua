@@ -277,6 +277,11 @@ M.setTileProperties = Map.setTileProperties
 M.unloadMap = Map.unloadMap
 
 -------------------------
+-- Sprite
+-------------------------
+M.removeSprite = Sprites.removeSprite
+
+-------------------------
 -- Other
 -------------------------
 
