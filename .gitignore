@@ -3,6 +3,7 @@
 
 # Compiled Lua sources
 luac.out
+dist/
 
 # luarocks build files
 *.src.rock
