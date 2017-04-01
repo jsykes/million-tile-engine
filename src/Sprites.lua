@@ -442,4 +442,127 @@ Sprites.addSprite = function(sprite, setup)
     return sprite		
 end
 
+----------------------------------------------
+
+Sprites.moveSpriteTo = function(params)
+    local object = params.sprite
+    local layer = object.layer or object.parent.layer or object.parent.vars.layer
+    local time = params.time or 0
+    params.time = math.ceil(params.time / Map.frameTime)
+    local easing = params.transition or easing.linear		
+    if params.locX then
+        params.levelPosX = Map.locToLevelPosX(params.locX)
+    end
+    if params.locY then
+        params.levelPosY = Map.locToLevelPosY(params.locY)
+    end
+    if not params.levelPosX then
+        params.levelPosX = object.x
+    end
+    if not params.levelPosY then
+        params.levelPosY = object.y
+    end
+    local constrain = {true, true, true, true}
+    if params.constrainToMap ~= nil then
+        constrain = params.constrainToMap
+    elseif object.constrainToMap then
+        constrain = object.constrainToMap
+    end
+    if params.override then
+        if Sprites.movingSprites[object] then
+            Sprites.movingSprites[object] = false
+        end
+    end		
+    local easingHelper = function(distance, frames)
+        local frameLength = display.fps
+        local move = {}
+        for i = 1, frames, 1 do
+            move[i] = easing((i - 1) * frameLength, frameLength * frames, 0, 1000)
+        end
+        local move2 = {}
+        local total2 = 0
+        for i = 1, frames, 1 do
+            if i < frames then
+                move2[i] = move[i + 1] - move[i]
+            else
+                move2[i] = 1000 - move[i]
+            end
+            total2 = total2 + move2[i]
+        end
+        local mod2 = distance / total2
+        local move3 = {}
+        for i = 1, frames, 1 do
+            move3[i] = move2[frames - (i - 1)] * mod2
+        end
+        return move3
+    end		
+    if not Sprites.movingSprites[object] then
+        if Camera.layerWrapX[layer] then
+            local oX = object.levelPosX or object.x
+            if oX - params.levelPosX < -0.5 * Map.map.width * Map.map.tilewidth then
+                params.levelPosX = params.levelPosX - Map.map.width * Map.map.tilewidth
+            end
+            if oX - params.levelPosX > 0.5 * Map.map.width * Map.map.tilewidth then
+                params.levelPosX = params.levelPosX + Map.map.width * Map.map.tilewidth
+            end
+            local distanceX = params.levelPosX - oX
+            object.deltaX = easingHelper(distanceX, params.time, params.easing)
+            Sprites.movingSprites[params.sprite] = #object.deltaX
+        else
+            if params.levelPosX > Map.map.layers[layer].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) and constrain[3] then
+                params.levelPosX = Map.map.layers[layer].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth)
+            end
+            if params.levelPosX < 0 - (Map.map.locOffsetX * Map.map.tilewidth) and constrain[1] then
+                params.levelPosX = 0 - (Map.map.locOffsetX * Map.map.tilewidth)
+            end
+            local distanceX = params.levelPosX - (object.levelPosX or object.x)
+            object.deltaX = easingHelper(distanceX, params.time, params.easing)
+            Sprites.movingSprites[params.sprite] = #object.deltaX
+        end			
+        if Camera.layerWrapY[layer] then
+            local oY = object.levelPosY or object.y
+            if oY - params.levelPosY < -0.5 * Map.map.height * Map.map.tileheight then
+                params.levelPosY = params.levelPosY - Map.map.height * Map.map.tileheight
+            end
+            if oY - params.levelPosY > 0.5 * Map.map.height * Map.map.tileheight then
+                params.levelPosY = params.levelPosY + Map.map.height * Map.map.tileheight
+            end
+            local distanceY = params.levelPosY - oY
+            object.deltaY = easingHelper(distanceY, params.time, params.easing)
+            Sprites.movingSprites[params.sprite] = #object.deltaY
+        else
+            if params.levelPosY > Map.map.layers[layer].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) and constrain[4] then
+                params.levelPosY = Map.map.layers[layer].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight)
+            end
+            if params.levelPosY < 0 - (Map.map.locOffsetY * Map.map.tileheight) and constrain[2] then
+                params.levelPosY = 0 - (Map.map.locOffsetY * Map.map.tileheight)
+            end
+            local distanceY = params.levelPosY - (object.levelPosY or object.y)
+            object.deltaY = easingHelper(distanceY, params.time, params.easing)
+            Sprites.movingSprites[params.sprite] = #object.deltaY
+        end			
+        object.onComplete = params.onComplete
+        object.isMoving = true
+    end
+end
+
+---------------------------------------------
+
+Sprites.sendSpriteTo = function(params)
+    local sprite = params.sprite
+    if params.locX then
+        sprite.locX = params.locX
+        sprite.locY = params.locY
+        sprite.levelPosX, sprite.levelPosY = Map.locToLevelPos(params.locX, params.locY)
+        sprite.x = sprite.levelPosX
+        sprite.y = sprite.levelPosY
+    elseif params.levelPosX then
+        sprite.levelPosX = params.levelPosX
+        sprite.levelPosY = params.levelPosY
+        sprite.locX, sprite.locY = Map.levelToLoc(params.levelPosX, params.levelPosY)
+        sprite.x = sprite.levelPosX
+        sprite.y = sprite.levelPosY
+    end
+end
+
 return Sprites

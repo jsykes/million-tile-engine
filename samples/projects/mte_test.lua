@@ -4,6 +4,2554 @@ do
 
 do
 local _ENV = _ENV
+package.preload[ "src.Sprites" ] = function( ... ) local arg = _G.arg;
+local Sprites = {}
+
+local Camera = require("src.Camera")
+local Map = require("src.Map")
+local Light = require("src.Light")
+
+Sprites.sprites = {}
+
+Sprites.movingSprites = {}
+
+Sprites.tempObjects = {}
+
+Sprites.holdSprite = nil
+
+Sprites.enableSpriteSorting = false
+
+-----------------------------------------------------------
+
+Sprites.removeSprite = function(sprite, destroyObject)
+    if sprite.light then
+        sprite.removeLight()
+    end
+    if Camera.cameraFocus == sprite then
+        Camera.cameraFocus = nil
+    end
+    if Light.pointLightSource == sprite then
+        Light.pointLightSource = nil
+    end
+    if Sprites.movingSprites[sprite] then
+        Sprites.movingSprites[sprite] = nil
+    end
+    if sprite.name then
+        if Sprites.sprites[sprite.name] then
+            Sprites.sprites[sprite.name] = nil
+        end
+    end
+    if destroyObject == nil or destroyObject == true then
+        sprite:removeSelf()
+        sprite = nil
+    else
+        local stage = display.getCurrentStage()
+        stage:insert(sprite)
+    end
+end
+
+-----------------------------------------------------------
+
+Sprites.addSprite = function(sprite, setup)
+    local layer
+    if setup.level then
+        layer = Map.spriteLayers[setup.level]
+        if not layer then
+            --print("Warning(addSprite): No Sprite Layer at level "..setup.level..". Defaulting to "..Map.refLayer..".")
+            for i = 1, #Map.map.layers, 1 do
+                if Map.map.layers[i].properties.level == setup.level then
+                    layer = i
+                    break
+                end
+            end
+            if not layer then
+                layer = Map.refLayer
+            end
+        end
+    elseif setup.layer then
+        layer = setup.layer
+        if layer > #Map.map.layers then
+            print("Warning(addSprite): Layer out of bounds. Defaulting to "..Map.refLayer..".")
+            layer = Map.refLayer
+        end
+    else
+        if sprite.parent.vars then
+            layer = sprite.parent.vars.layer
+        else
+            --print("Warning(addSprite): You forgot to specify a Layer or level. Defaulting to "..Map.refLayer..".")
+            layer = Map.refLayer
+        end
+    end
+    
+    if setup.color then
+        sprite.color = setup.color
+    end
+    if sprite.lighting == nil then
+        if setup.lighting ~= nil then
+            sprite.lighting = setup.lighting
+        else
+            sprite.lighting = true
+        end
+    end
+    
+    if not setup.kind or setup.kind == "sprite" then
+        sprite.objType = 1
+        if sprite.lighting then
+            if not sprite.color then
+                sprite.color = {1, 1, 1}
+            end
+            local mL = Map.map.layers[setup.layer]
+            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
+        end
+    elseif setup.kind == "imageRect" then
+        sprite.objType = 2
+        if sprite.lighting then
+            if not sprite.color then
+                sprite.color = {1, 1, 1}
+            end
+            local mL = Map.map.layers[setup.layer]
+            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
+        end
+    elseif setup.kind == "group" then
+        sprite.objType = 3
+        if sprite.lighting then
+            local mL = Map.map.layers[setup.layer]
+            for i = 1, sprite.numChildren, 1 do
+                if sprite[i]._class then
+                    if sprite.color and not sprite[i].color then
+                        sprite[i].color = sprite.color
+                    end
+                    if not sprite[i].color then
+                        sprite[i].color = {1, 1, 1}
+                    end
+                    sprite[i]:setFillColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
+                end
+            end
+        end
+    elseif setup.kind == "vector" then
+        sprite.objType = 4
+        if sprite.lighting then
+            local mL = Map.map.layers[setup.layer]
+            for i = 1, sprite.numChildren, 1 do
+                if sprite[i]._class then
+                    if sprite.color and not sprite[i].color then
+                        sprite[i].color = sprite.color
+                    end
+                    if not sprite[i].color then
+                        sprite[i].color = {1, 1, 1}
+                    end
+                    sprite[i]:setStrokeColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
+                end
+            end
+        end
+    end
+    
+    if setup.followHeightMap then
+        sprite.followHeightMap = setup.followHeightMap
+    end
+    if setup.heightMap then
+        sprite.heightMap = setup.heightMap
+    end
+    if setup.offscreenPhysics then
+        sprite.offscreenPhysics = true
+    end
+    if Camera.enableLighting then
+        sprite.litBy = {}
+        sprite.prevLitBy = {}
+    end
+    local spriteName = sprite.name or setup.name
+    if not spriteName or spriteName == "" then
+        spriteName = ""..sprite.x.."_"..sprite.y.."_"..layer
+    end
+    if Sprites.sprites[spriteName] and Sprites.sprites[spriteName] ~= sprite then
+        local tempName = spriteName
+        local counter = 1
+        while Sprites.sprites[tempName] do
+            tempName = ""..spriteName..counter
+            counter = counter + 1
+        end
+        spriteName = tempName
+    end
+    sprite.name = spriteName
+    if not Sprites.sprites[spriteName] then
+        Sprites.sprites[spriteName] = sprite
+    end
+    sprite.park = false
+    if setup.park == true then
+        sprite.park = true
+    end
+    
+    if setup.sortSprite ~= nil then
+        sprite.sortSprite = setup.sortSprite
+    else
+        sprite.sortSprite = false
+    end
+    if setup.sortSpriteOnce ~= nil then
+        sprite.sortSpriteOnce = setup.sortSpriteOnce
+    end
+    if not sprite.constrainToMap then
+        sprite.constrainToMap = {true, true, true, true}
+    end
+    if setup.constrainToMap ~= nil then
+        sprite.constrainToMap = setup.constrainToMap
+    end
+    sprite.locX = nil
+    sprite.locY = nil
+    sprite.levelPosX = nil
+    sprite.levelPosY = nil
+    if setup.layer then
+        sprite.layer = setup.layer
+        sprite.level = Map.map.layers[setup.layer].properties.level
+    end
+    sprite.deltaX = {}
+    sprite.deltaY = {}
+    sprite.velX = nil
+    sprite.velY = nil
+    sprite.isMoving = false
+    if Map.map.orientation == Map.Type.Isometric then
+        if setup.levelWidth then
+            sprite.levelWidth = setup.levelWidth
+            if sprite.objType ~= 3 then
+                sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
+            end
+        else
+            sprite.levelWidth = sprite.width
+        end
+        if setup.levelHeight then
+            sprite.levelHeight = setup.levelHeight
+            if sprite.objType ~= 3 then
+                sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
+            end
+        else
+            sprite.levelHeight = sprite.height
+        end
+        if setup.levelPosX then
+            sprite.levelPosX = setup.levelPosX			
+            sprite.locX = Map.levelToLocX(sprite.x)			
+        elseif setup.locX then
+            sprite.levelPosX = Map.locToLevelPosX(setup.locX)			
+            sprite.locX = setup.locX			
+        else
+            sprite.levelPosX = sprite.x			
+            sprite.locX = Map.levelToLocX(sprite.x)
+        end
+        if setup.levelPosY then
+            sprite.levelPosY = setup.levelPosY
+            sprite.locY = Map.levelToLocY(sprite.y)
+        elseif setup.locY then
+            sprite.levelPosY = Map.locToLevelPosX(setup.locY)
+            sprite.locY = setup.locY
+        else
+            sprite.levelPosY = sprite.y
+            sprite.locY = Map.levelToLocY(sprite.y)
+        end
+        local isoPos = Map.isoTransform2(sprite.levelPosX, sprite.levelPosY)
+        sprite.x = isoPos[1]
+        sprite.y = isoPos[2]
+    else
+        if setup.levelWidth then
+            sprite.levelWidth = setup.levelWidth
+            sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
+        else
+            sprite.levelWidth = sprite.width
+        end
+        if setup.levelHeight then
+            sprite.levelHeight = setup.levelHeight
+            sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
+        else
+            sprite.levelHeight = sprite.height
+        end
+        if setup.levelPosX then
+            sprite.x = setup.levelPosX			
+            sprite.locX = Map.levelToLocX(sprite.x)			
+        elseif setup.locX then
+            sprite.x = Map.locToLevelPosX(setup.locX)			
+            sprite.locX = setup.locX			
+        else
+            sprite.locX = MaplevelToLocX(sprite.x)	
+        end
+        if setup.levelPosY then
+            sprite.y = setup.levelPosY
+            sprite.locY = Map.levelToLocY(sprite.y)
+        elseif setup.locY then
+            sprite.y = Map.locToLevelPosX(setup.locY)
+            sprite.locY = setup.locY
+        else
+            sprite.locY = Map.levelToLocY(sprite.y)
+        end
+        sprite.levelPosX = sprite.x
+        sprite.levelPosY = sprite.y
+    end
+    sprite.lightingListeners = {}
+    sprite.addLightingListener = function(self, name, listener)
+        sprite.lightingListeners[name] = true
+        sprite:addEventListener(name, listener)
+    end
+    sprite.addLight = function(light)
+        if Camera.enableLighting then
+            sprite.light = light
+            sprite.light.created = true
+            if not sprite.light.id then
+                sprite.light.id = Light.lightIDs
+            end
+            Light.lightIDs = Light.lightIDs + 1
+            
+            if not sprite.light.maxRange then
+                local maxRange = sprite.light.range[1]
+                for l = 1, 3, 1 do
+                    if sprite.light.range[l] > maxRange then
+                        maxRange = sprite.light.range[l]
+                    end
+                end
+                sprite.light.maxRange = maxRange
+            end
+            
+            if not sprite.light.levelPosX then
+                sprite.light.levelPosX = sprite.levelPosX
+                sprite.light.levelPosY = sprite.levelPosY
+            end
+            
+            if not sprite.light.alternatorCounter then
+                sprite.light.alternatorCounter = 1
+            end
+            
+            if sprite.light.rays then
+                sprite.light.areaIndex = 1
+            end
+            
+            if sprite.light.layerRelative then
+                sprite.light.layer = sprite.layer + sprite.light.layerRelative
+                if sprite.light.layer < 1 then
+                    sprite.light.layer = 1
+                end
+                if sprite.light.layer > #Map.map.layers then
+                    sprite.light.layer = #Map.map.layers
+                end
+            end				
+            
+            if not sprite.light.layer then
+                sprite.light.layer = sprite.layer
+            end
+            sprite.light.level = sprite.level
+            sprite.light.dynamic = true
+            sprite.light.area = {}
+            sprite.light.sprite = sprite
+            Map.map.lights[sprite.light.id] = sprite.light
+        end
+    end
+    sprite.removeLight = function()
+        if sprite.light.rays then
+            sprite.light.areaIndex = 1
+        end
+        
+        local length = #sprite.light.area
+        for i = length, 1, -1 do
+            local locX = sprite.light.area[i][1]
+            local locY = sprite.light.area[i][2]
+            sprite.light.area[i] = nil
+            
+            if Camera.worldWrapX then
+                if locX < 1 - Map.map.locOffsetX then
+                    locX = locX + Map.map.width
+                end
+                if locX > Map.map.width - Map.map.locOffsetX then
+                    locX = locX - Map.map.width
+                end
+            end
+            if Camera.worldWrapY then
+                if locY < 1 - Map.map.locOffsetY then
+                    locY = locY + Map.map.height
+                end
+                if locY > Map.map.height - Map.map.locOffsetY then
+                    locY = locY - Map.map.height
+                end
+            end
+            if sprite.light.layer then
+                if Map.map.layers[sprite.light.layer].lighting[locX] and Map.map.layers[sprite.light.layer].lighting[locX][locY] then
+                    Map.map.layers[sprite.light.layer].lighting[locX][locY][sprite.light.id] = nil
+                    Map.map.lightToggle[locX][locY] = tonumber(system.getTimer())
+                end	
+            end
+        end
+        Map.map.lights[sprite.light.id] = nil
+        sprite.light = nil
+    end		
+    if Camera.layerWrapX[i] and (sprite.wrapX == nil or sprite.wrapX == true) then
+        while sprite.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) do
+            sprite.levelPosX = sprite.levelPosX + Map.map.layers[i].width * Map.map.tilewidth
+        end
+        while sprite.levelPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) do
+            sprite.levelPosX = sprite.levelPosX - Map.map.layers[i].width * Map.map.tilewidth
+        end		
+        if cameraX - sprite.x < Map.map.layers[i].width * Map.map.tilewidth / -2 then
+            --wrap around to the left
+            sprite.x = sprite.x - Map.map.layers[i].width * Map.map.tilewidth
+        elseif cameraX - sprite.x > Map.map.layers[i].width * Map.map.tilewidth / 2 then
+            --wrap around to the right
+            sprite.x = sprite.x + Map.map.layers[i].width * Map.map.tilewidth
+        end
+    end		
+    if Camera.layerWrapY[i] and (sprite.wrapY == nil or sprite.wrapY == true) then
+        while sprite.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
+            sprite.levelPosY = sprite.levelPosY + Map.map.layers[i].height * Map.map.tileheight
+        end
+        while sprite.levelPosY > Map.map.layers[i].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) do
+            sprite.levelPosY = sprite.levelPosY - Map.map.layers[i].height * Map.map.tileheight
+        end		
+        if cameraY - sprite.y < Map.map.layers[i].height * Map.map.tileheight / -2 then
+            --wrap around to the left
+            sprite.y = sprite.y - Map.map.layers[i].height * Map.map.tileheight
+        elseif cameraY - sprite.y > Map.map.layers[i].height * Map.map.tileheight / 2 then
+            --wrap around to the right
+            sprite.y = sprite.y + Map.map.layers[i].height * Map.map.tileheight
+        end
+    end		
+    sprite.locX = math.ceil(sprite.levelPosX / Map.map.tilewidth)
+    sprite.locY = math.ceil(sprite.levelPosY / Map.map.tileheight)
+    if setup.offsetX then
+        sprite.offsetX = setup.offsetX
+        --sprite.anchorX = ((sprite.width / 2) - sprite.offsetX) / sprite.width
+        sprite.anchorX = (((sprite.levelWidth or sprite.width) / 2) - sprite.offsetX) / (sprite.levelWidth or sprite.width)
+    else
+        sprite.offsetX = 0
+    end
+    if setup.offsetY then
+        sprite.offsetY = setup.offsetY
+        --sprite.anchorY = ((sprite.height / 2) - sprite.offsetY) / sprite.height
+        sprite.anchorY = (((sprite.levelHeight or sprite.height) / 2) - sprite.offsetY) / (sprite.levelHeight or sprite.height)
+    else
+        sprite.offsetY = 0
+    end
+    if Map.map.orientation == Map.Type.Isometric then
+        if Map.isoSort == 1 then
+            Map.masterGroup[setup.layer][sprite.locX + sprite.locY - 1]:insert(sprite)
+            sprite.row = sprite.locX + sprite.locY - 1
+        else
+            Map.masterGroup[(sprite.locX + (sprite.level - 1)) + (sprite.locY + (sprite.level - 1)) - 1].layers[setup.layer]:insert(sprite)
+        end
+    else
+        Map.masterGroup[layer]:insert(sprite)
+    end	
+    
+    if setup.properties then
+        if not sprite.properties then
+            sprite.properties = {}
+        end
+        for key,value in pairs(setup.properties) do
+            sprite.properties[key] = value
+        end
+    end
+    
+    if setup.managePhysicsStates ~= nil then
+        sprite.managePhysicsStates = setup.managePhysicsStates
+    end
+    
+    return sprite		
+end
+
+----------------------------------------------
+
+Sprites.moveSpriteTo = function(params)
+    local object = params.sprite
+    local layer = object.layer or object.parent.layer or object.parent.vars.layer
+    local time = params.time or 0
+    params.time = math.ceil(params.time / Map.frameTime)
+    local easing = params.transition or easing.linear		
+    if params.locX then
+        params.levelPosX = Map.locToLevelPosX(params.locX)
+    end
+    if params.locY then
+        params.levelPosY = Map.locToLevelPosY(params.locY)
+    end
+    if not params.levelPosX then
+        params.levelPosX = object.x
+    end
+    if not params.levelPosY then
+        params.levelPosY = object.y
+    end
+    local constrain = {true, true, true, true}
+    if params.constrainToMap ~= nil then
+        constrain = params.constrainToMap
+    elseif object.constrainToMap then
+        constrain = object.constrainToMap
+    end
+    if params.override then
+        if Sprites.movingSprites[object] then
+            Sprites.movingSprites[object] = false
+        end
+    end		
+    local easingHelper = function(distance, frames)
+        local frameLength = display.fps
+        local move = {}
+        for i = 1, frames, 1 do
+            move[i] = easing((i - 1) * frameLength, frameLength * frames, 0, 1000)
+        end
+        local move2 = {}
+        local total2 = 0
+        for i = 1, frames, 1 do
+            if i < frames then
+                move2[i] = move[i + 1] - move[i]
+            else
+                move2[i] = 1000 - move[i]
+            end
+            total2 = total2 + move2[i]
+        end
+        local mod2 = distance / total2
+        local move3 = {}
+        for i = 1, frames, 1 do
+            move3[i] = move2[frames - (i - 1)] * mod2
+        end
+        return move3
+    end		
+    if not Sprites.movingSprites[object] then
+        if Camera.layerWrapX[layer] then
+            local oX = object.levelPosX or object.x
+            if oX - params.levelPosX < -0.5 * Map.map.width * Map.map.tilewidth then
+                params.levelPosX = params.levelPosX - Map.map.width * Map.map.tilewidth
+            end
+            if oX - params.levelPosX > 0.5 * Map.map.width * Map.map.tilewidth then
+                params.levelPosX = params.levelPosX + Map.map.width * Map.map.tilewidth
+            end
+            local distanceX = params.levelPosX - oX
+            object.deltaX = easingHelper(distanceX, params.time, params.easing)
+            Sprites.movingSprites[params.sprite] = #object.deltaX
+        else
+            if params.levelPosX > Map.map.layers[layer].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) and constrain[3] then
+                params.levelPosX = Map.map.layers[layer].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth)
+            end
+            if params.levelPosX < 0 - (Map.map.locOffsetX * Map.map.tilewidth) and constrain[1] then
+                params.levelPosX = 0 - (Map.map.locOffsetX * Map.map.tilewidth)
+            end
+            local distanceX = params.levelPosX - (object.levelPosX or object.x)
+            object.deltaX = easingHelper(distanceX, params.time, params.easing)
+            Sprites.movingSprites[params.sprite] = #object.deltaX
+        end			
+        if Camera.layerWrapY[layer] then
+            local oY = object.levelPosY or object.y
+            if oY - params.levelPosY < -0.5 * Map.map.height * Map.map.tileheight then
+                params.levelPosY = params.levelPosY - Map.map.height * Map.map.tileheight
+            end
+            if oY - params.levelPosY > 0.5 * Map.map.height * Map.map.tileheight then
+                params.levelPosY = params.levelPosY + Map.map.height * Map.map.tileheight
+            end
+            local distanceY = params.levelPosY - oY
+            object.deltaY = easingHelper(distanceY, params.time, params.easing)
+            Sprites.movingSprites[params.sprite] = #object.deltaY
+        else
+            if params.levelPosY > Map.map.layers[layer].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) and constrain[4] then
+                params.levelPosY = Map.map.layers[layer].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight)
+            end
+            if params.levelPosY < 0 - (Map.map.locOffsetY * Map.map.tileheight) and constrain[2] then
+                params.levelPosY = 0 - (Map.map.locOffsetY * Map.map.tileheight)
+            end
+            local distanceY = params.levelPosY - (object.levelPosY or object.y)
+            object.deltaY = easingHelper(distanceY, params.time, params.easing)
+            Sprites.movingSprites[params.sprite] = #object.deltaY
+        end			
+        object.onComplete = params.onComplete
+        object.isMoving = true
+    end
+end
+
+---------------------------------------------
+
+Sprites.sendSpriteTo = function(params)
+    local sprite = params.sprite
+    if params.locX then
+        sprite.locX = params.locX
+        sprite.locY = params.locY
+        sprite.levelPosX, sprite.levelPosY = Map.locToLevelPos(params.locX, params.locY)
+        sprite.x = sprite.levelPosX
+        sprite.y = sprite.levelPosY
+    elseif params.levelPosX then
+        sprite.levelPosX = params.levelPosX
+        sprite.levelPosY = params.levelPosY
+        sprite.locX, sprite.locY = Map.levelToLoc(params.levelPosX, params.levelPosY)
+        sprite.x = sprite.levelPosX
+        sprite.y = sprite.levelPosY
+    end
+end
+
+return Sprites
+
+end
+end
+
+do
+local _ENV = _ENV
+package.preload[ "src.PhysicsData" ] = function( ... ) local arg = _G.arg;
+local PhysicsData = {}
+
+-----------------------------------------------------------
+
+PhysicsData.defaultDensity = 1.0
+PhysicsData.defaultFriction = 0.1
+PhysicsData.defaultBounce = 0
+PhysicsData.defaultBodyType = "static"
+PhysicsData.defaultShape = nil
+PhysicsData.defaultRadius = nil
+PhysicsData.defaultFilter = nil
+PhysicsData.layer = {}
+
+PhysicsData.managePhysicsStates = true
+
+PhysicsData.enablePhysicsByLayer = 0
+PhysicsData.enablePhysics = {}
+
+-----------------------------------------------------------
+
+PhysicsData.enableBox2DPhysics = function(arg)
+    if ( arg == "by layer" ) then
+        PhysicsData.enablePhysicsByLayer = 1
+    elseif ( arg == "all" or arg == "Map.map" or not arg ) then
+        PhysicsData.enablePhysicsByLayer = 2
+    end
+end
+
+-----------------------------------------------------------
+
+return PhysicsData
+
+end
+end
+
+do
+local _ENV = _ENV
+package.preload[ "src.Light" ] = function( ... ) local arg = _G.arg;
+local Light = {}
+
+local Map = require("src.Map")
+local Camera = require("src.Camera")
+
+-----------------------------------------------------------
+
+Light.pointLightSource = nil  
+
+Light.lightIDs = 0
+
+Light.lightingData = { 
+    fadeIn = 0.25, 
+    fadeOut = 0.25, 
+    refreshStyle = 2, 
+    refreshAlternator = 4, 
+    refreshCounter = 1, 
+    resolution = 1.1
+}
+
+-----------------------------------------------------------
+
+Light.processLight = function(layer, light)
+    local style = 3
+    local blockScaleXt = Map.map.tilewidth
+    local blockScaleYt = Map.map.tileheight
+    local range = light.maxRange
+    local steps = (2 * range * 3.14) * Light.lightingData.resolution 
+    local angleSteps = 360 / steps
+    
+    local r1, r2 = 1, 361
+    if light.arc then
+        r1 = light.arc[1]
+        r2 = light.arc[2]
+    end
+    
+    local levelPosX, levelPosY
+    if not light.levelPosX then
+        levelPosX = (light.locX * blockScaleXt - blockScaleXt * 0.5)
+        levelPosY = (light.locY * blockScaleYt - blockScaleYt * 0.5)
+    else
+        levelPosX = light.levelPosX
+        levelPosY = light.levelPosY
+    end
+    
+    light.levelPosX = levelPosX
+    light.levelPosY = levelPosY
+    light.layer = layer
+    local cLocX = math.round((levelPosX + (blockScaleXt * 0.5)) / blockScaleXt) --light.locX
+    local cLocY = math.round((levelPosY + (blockScaleYt * 0.5)) / blockScaleYt) --light.locY
+    light.locX = cLocX
+    light.locY = cLocY
+    local tileX = (cLocX - 1) * blockScaleXt
+    local tileY = (cLocY - 1) * blockScaleYt
+    local startX = levelPosX - tileX
+    local startY = levelPosY - tileY
+    
+    local mL = Map.map.layers[layer].lighting
+    local mW = Map.map.layers[layer].world
+    local mT = Map.map.lightToggle
+    local dynamic = light.dynamic
+    local area = light.area
+    local areaIndex = 1
+    local worldSizeXt = Map.map.width
+    local worldSizeYt = Map.map.height
+    
+    local id = light.id
+    local falloff1 = light.falloff[1]
+    local falloff2 = light.falloff[2]
+    local falloff3 = light.falloff[3]
+    
+    if not mL[cLocX][cLocY] then
+        mL[cLocX][cLocY] = {}
+    end
+    
+    if not light.locations then
+        light.locations = {}
+    end
+    
+    local count = 0
+    local time = tonumber(system.getTimer())
+    light.lightToggle = time
+    local toRadian = 0.01745329251994
+    
+    mL[cLocX][cLocY][id] = {}
+    mL[cLocX][cLocY][id].light = {light.source[1], light.source[2], light.source[3]}
+    mT[cLocX][cLocY] = time
+    area[areaIndex] = {cLocX, cLocY}
+    areaIndex = areaIndex + 1
+    
+    for i = r1, r2, angleSteps do
+        local breakX = false
+        local breakY = false
+        local angleR = i * toRadian --math.rad(i)
+        local x = (5 * math.cos(angleR))
+        local y = (5 * math.sin(angleR))
+        
+        local red = light.source[1]
+        local green = light.source[2]
+        local blue = light.source[3]
+        
+        if x > 0 and y < 0 then
+            --top right quadrant
+            
+            local Xangle = (i - 270) * toRadian --math.rad(i - 270)
+            local XcheckY = tileY
+            local XcheckX = math.tan(Xangle) * startY + levelPosX
+            local XdeltaY = blockScaleYt
+            local XdeltaX = math.tan(Xangle) * blockScaleYt
+            local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
+            local Xdistance = startY / math.cos(Xangle) / blockScaleXt
+            local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
+            
+            local Yangle = (360 - i) * toRadian --math.rad(360 - i)
+            local YcheckY = levelPosY - (math.tan(Yangle) * (tileX + blockScaleXt - levelPosX))
+            local YcheckX = tileX + blockScaleXt + 1
+            local YdeltaY = math.tan(Yangle) * blockScaleXt
+            local YdeltaX = blockScaleXt
+            local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
+            local Ydistance = (YcheckX - levelPosX) / math.cos(Yangle) / blockScaleYt
+            local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
+            
+            for j = 1, range * 2, 1 do
+                count = count + 1
+                
+                if Camera.worldWrapX then
+                    if XlocX > worldSizeXt - Map.map.locOffsetX then
+                        XlocX = XlocX - worldSizeXt
+                    end
+                    if XlocX < 1 - Map.map.locOffsetX then
+                        XlocX = XlocX + worldSizeXt
+                    end
+                    if YlocX > worldSizeXt - Map.map.locOffsetX then
+                        YlocX = YlocX - worldSizeXt
+                    end
+                    if YlocX < 1 - Map.map.locOffsetX then
+                        YlocX = YlocX + worldSizeXt
+                    end
+                end
+                if Camera.worldWrapY then
+                    if XlocY > worldSizeYt - Map.map.locOffsetY then
+                        XlocY = XlocY - worldSizeYt
+                    end
+                    if XlocY < 1 - Map.map.locOffsetY then
+                        XlocY = XlocY + worldSizeYt
+                    end
+                    if YlocY > worldSizeYt - Map.map.locOffsetY then
+                        YlocY = YlocY - worldSizeYt
+                    end
+                    if YlocY < 1 - Map.map.locOffsetY then
+                        YlocY = YlocY + worldSizeYt
+                    end
+                end
+                
+                if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
+                    breakX = true
+                end
+                if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
+                    breakY = true
+                end
+                if breakX and breakY then
+                    break
+                end
+                
+                local red1,green1,blue1
+                
+                if Xdistance < Ydistance then
+                    if Xdistance <= range then
+                        mT[XlocX][XlocY] = time
+                        area[areaIndex] = {XlocX, XlocY}
+                        areaIndex = areaIndex + 1
+                        red1 = red - (falloff1 * Xdistance)
+                        green1 = green - (falloff2 * Xdistance)
+                        blue1 = blue - (falloff3 * Xdistance)
+                        if not mL[XlocX][XlocY] then
+                            mL[XlocX][XlocY] = {}						
+                        elseif mL[XlocX][XlocY][id] then							
+                            if style == 1 then
+                                local tempLight = mL[XlocX][XlocY][id]
+                                red1 = (red1 + tempLight.light[1]) / 2
+                                green1 = (green1 + tempLight.light[2]) / 2
+                                blue1 = (blue1 + tempLight.light[3]) / 2
+                            elseif style == 2 then
+                                local tempLight = mL[XlocX][XlocY][id]
+                                if red1 > tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 > tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 > tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            else
+                                local tempLight = mL[XlocX][XlocY][id]
+                                if red1 < tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 < tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 < tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            end
+                        end
+                        mL[XlocX][XlocY][id] = {}
+                        mL[XlocX][XlocY][id].light = {red1, green1, blue1}
+                        
+                        if Map.map.lightingData[mW[XlocX][XlocY]] then
+                            local temp = Map.map.lightingData[mW[XlocX][XlocY]]
+                            red = red - temp.opacity[1]
+                            green = green - temp.opacity[2]
+                            blue = blue - temp.opacity[3]
+                        end
+                        
+                        XcheckX = XcheckX + XdeltaX
+                        XcheckY = XcheckY - XdeltaY
+                        XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY - 1
+                        Xdistance = Xdistance + XdeltaV
+                    end
+                else
+                    if Ydistance <= range then
+                        mT[YlocX][YlocY] = time
+                        area[areaIndex] = {YlocX, YlocY}
+                        areaIndex = areaIndex + 1
+                        red1 = red - (falloff1 * Ydistance)
+                        green1 = green - (falloff2 * Ydistance)
+                        blue1 = blue - (falloff3 * Ydistance)
+                        if not mL[YlocX][YlocY] then
+                            mL[YlocX][YlocY] = {}						
+                        elseif mL[YlocX][YlocY][id] then
+                            if style == 1 then
+                                local tempLight = mL[YlocX][YlocY][id]
+                                red1 = (red1 + tempLight.light[1]) / 2
+                                green1 = (green1 + tempLight.light[2]) / 2
+                                blue1 = (blue1 + tempLight.light[3]) / 2
+                            elseif style == 2 then
+                                local tempLight = mL[YlocX][YlocY][id]
+                                if red1 > tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 > tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 > tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            else
+                                local tempLight = mL[YlocX][YlocY][id]
+                                if red1 < tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 < tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 < tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            end
+                        end
+                        mL[YlocX][YlocY][id] = {}
+                        mL[YlocX][YlocY][id].light = {red1, green1, blue1}
+                        
+                        if Map.map.lightingData[mW[YlocX][YlocY]] then
+                            local temp = Map.map.lightingData[mW[YlocX][YlocY]]
+                            red = red - temp.opacity[1]
+                            green = green - temp.opacity[2]
+                            blue = blue - temp.opacity[3]
+                        end	
+                        
+                        YcheckX = YcheckX + YdeltaX
+                        YcheckY = YcheckY - YdeltaY
+                        YlocX, YlocY = YlocX + 1,math.ceil(YcheckY / blockScaleYt)
+                        Ydistance = Ydistance + YdeltaV
+                    end
+                end				
+                
+                if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
+                    break
+                end
+                
+                if Xdistance > range and Ydistance > range then
+                    break
+                end
+            end
+            
+        elseif x > 0 and y > 0 then
+            --bottom right quadrant
+            
+            local Xangle = (90 - i) * toRadian --math.rad(90 - i)
+            local XcheckY = tileY + blockScaleYt + 1
+            local XcheckX = math.tan(Xangle) * (XcheckY - levelPosY) + levelPosX
+            local XdeltaY = blockScaleYt
+            local XdeltaX = math.tan(Xangle) * blockScaleYt
+            local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
+            local Xdistance = (XcheckY - levelPosY) / math.cos(Xangle) / blockScaleXt
+            local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
+            
+            local Yangle = i * toRadian --math.rad(i)
+            local YcheckY = math.tan(Yangle) * (tileX + blockScaleXt - levelPosX) + levelPosY
+            local YcheckX = tileX + blockScaleXt + 1
+            local YdeltaY = math.tan(Yangle) * blockScaleXt
+            local YdeltaX = blockScaleXt
+            local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
+            local Ydistance = (YcheckX - levelPosX) / math.cos(Yangle) / blockScaleYt
+            local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
+            
+            for j = 1, range * 2, 1 do
+                count = count + 1
+                
+                if Camera.worldWrapX then
+                    if XlocX > worldSizeXt - Map.map.locOffsetX then
+                        XlocX = XlocX - worldSizeXt
+                    end
+                    if XlocX < 1 - Map.map.locOffsetX then
+                        XlocX = XlocX + worldSizeXt
+                    end
+                    if YlocX > worldSizeXt - Map.map.locOffsetX then
+                        YlocX = YlocX - worldSizeXt
+                    end
+                    if YlocX < 1 - Map.map.locOffsetX then
+                        YlocX = YlocX + worldSizeXt
+                    end
+                end
+                if Camera.worldWrapY then
+                    if XlocY > worldSizeYt - Map.map.locOffsetY then
+                        XlocY = XlocY - worldSizeYt
+                    end
+                    if XlocY < 1 - Map.map.locOffsetY then
+                        XlocY = XlocY + worldSizeYt
+                    end
+                    if YlocY > worldSizeYt - Map.map.locOffsetY then
+                        YlocY = YlocY - worldSizeYt
+                    end
+                    if YlocY < 1 - Map.map.locOffsetY then
+                        YlocY = YlocY + worldSizeYt
+                    end
+                end
+                
+                if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
+                    breakX = true
+                end
+                if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
+                    breakY = true
+                end
+                if breakX and breakY then
+                    break
+                end
+                
+                local red1,green1,blue1
+                
+                if Xdistance < Ydistance then
+                    if Xdistance <= range then
+                        mT[XlocX][XlocY] = time
+                        area[areaIndex] = {XlocX, XlocY}
+                        areaIndex = areaIndex + 1
+                        red1 = red - (falloff1 * Xdistance)
+                        green1 = green - (falloff2 * Xdistance)
+                        blue1 = blue - (falloff3 * Xdistance)
+                        if not mL[XlocX][XlocY] then
+                            mL[XlocX][XlocY] = {}						
+                        elseif mL[XlocX][XlocY][id] then
+                            if style == 1 then
+                                local tempLight = mL[XlocX][XlocY][id]
+                                red1 = (red1 + tempLight.light[1]) / 2
+                                green1 = (green1 + tempLight.light[2]) / 2
+                                blue1 = (blue1 + tempLight.light[3]) / 2
+                            elseif style == 2 then
+                                local tempLight = mL[XlocX][XlocY][id]
+                                if red1 > tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 > tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 > tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            else
+                                local tempLight = mL[XlocX][XlocY][id]
+                                if red1 < tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 < tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 < tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            end
+                        end
+                        mL[XlocX][XlocY][id] = {}
+                        mL[XlocX][XlocY][id].light = {red1, green1, blue1}
+                        
+                        if Map.map.lightingData[mW[XlocX][XlocY]] then
+                            local temp = Map.map.lightingData[mW[XlocX][XlocY]]
+                            red = red - temp.opacity[1]
+                            green = green - temp.opacity[2]
+                            blue = blue - temp.opacity[3]
+                        end
+                        
+                        XcheckX = XcheckX + XdeltaX
+                        XcheckY = XcheckY + XdeltaY
+                        XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY + 1
+                        Xdistance = Xdistance + XdeltaV
+                    end
+                else
+                    if Ydistance <= range then
+                        mT[YlocX][YlocY] = time
+                        area[areaIndex] = {YlocX, YlocY}
+                        areaIndex = areaIndex + 1
+                        red1 = red - (falloff1 * Ydistance)
+                        green1 = green - (falloff2 * Ydistance)
+                        blue1 = blue - (falloff3 * Ydistance)
+                        if not mL[YlocX][YlocY] then
+                            mL[YlocX][YlocY] = {}						
+                        elseif mL[YlocX][YlocY][id] then
+                            if style == 1 then
+                                local tempLight = mL[YlocX][YlocY][id]
+                                red1 = (red1 + tempLight.light[1]) / 2
+                                green1 = (green1 + tempLight.light[2]) / 2
+                                blue1 = (blue1 + tempLight.light[3]) / 2
+                            elseif style == 2 then
+                                local tempLight = mL[YlocX][YlocY][id]
+                                if red1 > tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 > tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 > tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            else
+                                local tempLight = mL[YlocX][YlocY][id]
+                                if red1 < tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 < tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 < tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            end
+                        end
+                        mL[YlocX][YlocY][id] = {}
+                        mL[YlocX][YlocY][id].light = {red1, green1, blue1}
+                        
+                        if Map.map.lightingData[mW[YlocX][YlocY]] then
+                            local temp = Map.map.lightingData[mW[YlocX][YlocY]]
+                            red = red - temp.opacity[1]
+                            green = green - temp.opacity[2]
+                            blue = blue - temp.opacity[3]
+                        end	
+                        
+                        YcheckX = YcheckX + YdeltaX
+                        YcheckY = YcheckY + YdeltaY
+                        YlocX, YlocY = YlocX + 1,math.ceil(YcheckY / blockScaleYt)
+                        Ydistance = Ydistance + YdeltaV
+                    end
+                end
+                
+                
+                if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
+                    break
+                end
+                
+                if Xdistance > range and Ydistance > range then
+                    break
+                end
+            end
+            
+        elseif x < 0 and y > 0 then
+            --bottom left quadrant
+            
+            local Xangle = (i - 90) * toRadian --math.rad(i - 90)
+            local XcheckY = tileY + blockScaleYt + 1
+            local XcheckX = levelPosX - (math.tan(Xangle) * (XcheckY - levelPosY))
+            local XdeltaY = blockScaleYt
+            local XdeltaX = math.tan(Xangle) * blockScaleYt
+            local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
+            local Xdistance = (XcheckY - levelPosY) / math.cos(Xangle) / blockScaleXt
+            local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
+            
+            local Yangle = (180 - i) * toRadian --math.rad(180 - i)
+            local YcheckY = math.tan(Yangle) * (levelPosX - tileX) + levelPosY
+            local YcheckX = tileX 
+            local YdeltaY = math.tan(Yangle) * blockScaleXt
+            local YdeltaX = blockScaleXt
+            local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
+            local Ydistance = startX / math.cos(Yangle) / blockScaleYt
+            local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
+            
+            for j = 1, range * 2, 1 do
+                count = count + 1
+                
+                if Camera.worldWrapX then
+                    if XlocX > worldSizeXt - Map.map.locOffsetX then
+                        XlocX = XlocX - worldSizeXt
+                    end
+                    if XlocX < 1 - Map.map.locOffsetX then
+                        XlocX = XlocX + worldSizeXt
+                    end
+                    if YlocX > worldSizeXt - Map.map.locOffsetX then
+                        YlocX = YlocX - worldSizeXt
+                    end
+                    if YlocX < 1 - Map.map.locOffsetX then
+                        YlocX = YlocX + worldSizeXt
+                    end
+                end
+                if Camera.worldWrapY then
+                    if XlocY > worldSizeYt - Map.map.locOffsetY then
+                        XlocY = XlocY - worldSizeYt
+                    end
+                    if XlocY < 1 - Map.map.locOffsetY then
+                        XlocY = XlocY + worldSizeYt
+                    end
+                    if YlocY > worldSizeYt - Map.map.locOffsetY then
+                        YlocY = YlocY - worldSizeYt
+                    end
+                    if YlocY < 1 - Map.map.locOffsetY then
+                        YlocY = YlocY + worldSizeYt
+                    end
+                end
+                
+                if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
+                    breakX = true
+                end
+                if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
+                    breakY = true
+                end
+                if breakX and breakY then
+                    break
+                end
+                
+                local red1, green1, blue1
+                
+                if Xdistance < Ydistance then
+                    if Xdistance <= range then
+                        mT[XlocX][XlocY] = time
+                        area[areaIndex] = {XlocX, XlocY}
+                        areaIndex = areaIndex + 1
+                        red1 = red - (falloff1 * Xdistance)
+                        green1 = green - (falloff2 * Xdistance)
+                        blue1 = blue - (falloff3 * Xdistance)
+                        if not mL[XlocX][XlocY] then
+                            mL[XlocX][XlocY] = {}						
+                        elseif mL[XlocX][XlocY][id] then
+                            if style == 1 then
+                                local tempLight = mL[XlocX][XlocY][id]
+                                red1 = (red1 + tempLight.light[1]) / 2
+                                green1 = (green1 + tempLight.light[2]) / 2
+                                blue1 = (blue1 + tempLight.light[3]) / 2
+                            elseif style == 2 then
+                                local tempLight = mL[XlocX][XlocY][id]
+                                if red1 > tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 > tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 > tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            else
+                                local tempLight = mL[XlocX][XlocY][id]
+                                if red1 < tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 < tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 < tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            end
+                        end
+                        mL[XlocX][XlocY][id] = {}
+                        mL[XlocX][XlocY][id].light = {red1, green1, blue1}
+                        
+                        if Map.map.lightingData[mW[XlocX][XlocY]] then
+                            local temp = Map.map.lightingData[mW[XlocX][XlocY]]
+                            red = red - temp.opacity[1]
+                            green = green - temp.opacity[2]
+                            blue = blue - temp.opacity[3]
+                        end
+                        
+                        XcheckX = XcheckX - XdeltaX
+                        XcheckY = XcheckY + XdeltaY
+                        XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY + 1
+                        Xdistance = Xdistance + XdeltaV
+                    end
+                else
+                    if Ydistance <= range then
+                        mT[YlocX][YlocY] = time
+                        area[areaIndex] = {YlocX, YlocY}
+                        areaIndex = areaIndex + 1
+                        red1 = red - (falloff1 * Ydistance)
+                        green1 = green - (falloff2 * Ydistance)
+                        blue1 = blue - (falloff3 * Ydistance)
+                        if not mL[YlocX][YlocY] then
+                            mL[YlocX][YlocY] = {}						
+                        elseif mL[YlocX][YlocY][id] then
+                            if style == 1 then
+                                local tempLight = mL[YlocX][YlocY][id]
+                                red1 = (red1 + tempLight.light[1]) / 2
+                                green1 = (green1 + tempLight.light[2]) / 2
+                                blue1 = (blue1 + tempLight.light[3]) / 2
+                            elseif style == 2 then
+                                local tempLight = mL[YlocX][YlocY][id]
+                                if red1 > tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 > tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 > tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            else
+                                local tempLight = mL[YlocX][YlocY][id]
+                                if red1 < tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 < tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 < tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            end
+                        end
+                        mL[YlocX][YlocY][id] = {}
+                        mL[YlocX][YlocY][id].light = {red1, green1, blue1}
+                        
+                        if Map.map.lightingData[mW[YlocX][YlocY]] then
+                            local temp = Map.map.lightingData[mW[YlocX][YlocY]]
+                            red = red - temp.opacity[1]
+                            green = green - temp.opacity[2]
+                            blue = blue - temp.opacity[3]
+                        end	
+                        
+                        YcheckX = YcheckX - YdeltaX
+                        YcheckY = YcheckY + YdeltaY
+                        YlocX, YlocY = YlocX - 1,math.ceil(YcheckY / blockScaleYt)
+                        Ydistance = Ydistance + YdeltaV
+                    end
+                end
+                
+                if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
+                    break
+                end
+                
+                if Xdistance > range and Ydistance > range then
+                    break
+                end				
+            end
+            
+        elseif x < 0 and y < 0 then
+            --top left quadrant
+            
+            local Xangle = (270 - i) * toRadian --math.rad(270 - i)
+            local XcheckY = tileY
+            local XcheckX = levelPosX - (math.tan(Xangle) * (levelPosY - tileY))
+            local XdeltaY = blockScaleYt
+            local XdeltaX = math.tan(Xangle) * blockScaleYt
+            local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
+            local Xdistance = startY / math.cos(Xangle) / blockScaleXt
+            local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
+            
+            local Yangle = (i - 180) * toRadian --math.rad(i - 180)
+            local YcheckY = levelPosY - (math.tan(Yangle) * (levelPosX - tileX))
+            local YcheckX = tileX
+            local YdeltaY = math.tan(Yangle) * blockScaleXt
+            local YdeltaX = blockScaleXt
+            local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
+            local Ydistance = startX / math.cos(Yangle) / blockScaleYt
+            local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
+            
+            for j = 1, range * 2, 1 do
+                count = count + 1
+                
+                if Camera.worldWrapX then
+                    if XlocX > worldSizeXt - Map.map.locOffsetX then
+                        XlocX = XlocX - worldSizeXt
+                    end
+                    if XlocX < 1 - Map.map.locOffsetX then
+                        XlocX = XlocX + worldSizeXt
+                    end
+                    if YlocX > worldSizeXt - Map.map.locOffsetX then
+                        YlocX = YlocX - worldSizeXt
+                    end
+                    if YlocX < 1 - Map.map.locOffsetX then
+                        YlocX = YlocX + worldSizeXt
+                    end
+                end
+                if Camera.worldWrapY then
+                    if XlocY > worldSizeYt - Map.map.locOffsetY then
+                        XlocY = XlocY - worldSizeYt
+                    end
+                    if XlocY < 1 - Map.map.locOffsetY then
+                        XlocY = XlocY + worldSizeYt
+                    end
+                    if YlocY > worldSizeYt - Map.map.locOffsetY then
+                        YlocY = YlocY - worldSizeYt
+                    end
+                    if YlocY < 1 - Map.map.locOffsetY then
+                        YlocY = YlocY + worldSizeYt
+                    end
+                end
+                
+                if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
+                    breakX = true
+                end
+                if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
+                    breakY = true
+                end
+                if breakX and breakY then
+                    break
+                end
+                
+                local red1, green1, blue1
+                
+                if Xdistance < Ydistance then
+                    if Xdistance <= range then
+                        mT[XlocX][XlocY] = time
+                        area[areaIndex] = {XlocX, XlocY}
+                        areaIndex = areaIndex + 1
+                        red1 = red - (falloff1 * Xdistance)
+                        green1 = green - (falloff2 * Xdistance)
+                        blue1 = blue - (falloff3 * Xdistance)
+                        if not mL[XlocX][XlocY] then
+                            mL[XlocX][XlocY] = {}						
+                        elseif mL[XlocX][XlocY][id] then
+                            if style == 1 then
+                                local tempLight = mL[XlocX][XlocY][id]
+                                red1 = (red1 + tempLight.light[1]) / 2
+                                green1 = (green1 + tempLight.light[2]) / 2
+                                blue1 = (blue1 + tempLight.light[3]) / 2
+                            elseif style == 2 then
+                                local tempLight = mL[XlocX][XlocY][id]
+                                if red1 > tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 > tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 > tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            else
+                                local tempLight = mL[XlocX][XlocY][id]
+                                if red1 < tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 < tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 < tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            end
+                        end
+                        mL[XlocX][XlocY][id] = {}
+                        mL[XlocX][XlocY][id].light = {red1, green1, blue1}
+                        
+                        if Map.map.lightingData[mW[XlocX][XlocY]] then
+                            local temp = Map.map.lightingData[mW[XlocX][XlocY]]
+                            red = red - temp.opacity[1]
+                            green = green - temp.opacity[2]
+                            blue = blue - temp.opacity[3]
+                        end
+                        
+                        XcheckX = XcheckX - XdeltaX
+                        XcheckY = XcheckY - XdeltaY
+                        XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY - 1
+                        Xdistance = Xdistance + XdeltaV
+                    end
+                else
+                    if Ydistance <= range then
+                        mT[YlocX][YlocY] = time
+                        area[areaIndex] = {YlocX, YlocY}
+                        areaIndex = areaIndex + 1
+                        red1 = red - (falloff1 * Ydistance)
+                        green1 = green - (falloff2 * Ydistance)
+                        blue1 = blue - (falloff3 * Ydistance)
+                        if not mL[YlocX][YlocY] then
+                            mL[YlocX][YlocY] = {}						
+                        elseif mL[YlocX][YlocY][id] then
+                            if style == 1 then
+                                local tempLight = mL[YlocX][YlocY][id]
+                                red1 = (red1 + tempLight.light[1]) / 2
+                                green1 = (green1 + tempLight.light[2]) / 2
+                                blue1 = (blue1 + tempLight.light[3]) / 2
+                            elseif style == 2 then
+                                local tempLight = mL[YlocX][YlocY][id]
+                                if red1 > tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 > tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 > tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            else
+                                local tempLight = mL[YlocX][YlocY][id]
+                                if red1 < tempLight.light[1] then
+                                    red1 = tempLight.light[1]
+                                end
+                                if green1 < tempLight.light[2] then
+                                    green1 = tempLight.light[2]
+                                end
+                                if blue1 < tempLight.light[3] then
+                                    blue1 = tempLight.light[3]
+                                end
+                            end
+                        end
+                        mL[YlocX][YlocY][id] = {}
+                        mL[YlocX][YlocY][id].light = {red1, green1, blue1}
+                        
+                        if Map.map.lightingData[mW[YlocX][YlocY]] then
+                            local temp = Map.map.lightingData[mW[YlocX][YlocY]]
+                            red = red - temp.opacity[1]
+                            green = green - temp.opacity[2]
+                            blue = blue - temp.opacity[3]
+                        end	
+                        
+                        YcheckX = YcheckX - YdeltaX
+                        YcheckY = YcheckY - YdeltaY
+                        YlocX, YlocY = YlocX - 1,math.ceil(YcheckY / blockScaleYt)
+                        Ydistance = Ydistance + YdeltaV
+                    end
+                end
+                
+                
+                if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
+                    break
+                end
+                
+                if Xdistance > range and Ydistance > range then
+                    break
+                end
+            end			
+        end
+    end
+end
+
+
+
+-----------------------------------------------------------
+
+
+
+Light.processLightRay = function(layer, light, ray)
+    local style = 3
+    local blockScaleXt = Map.map.tilewidth
+    local blockScaleYt = Map.map.tileheight
+    local range = light.maxRange
+    
+    local levelPosX, levelPosY
+    if not light.levelPosX then
+        levelPosX = (light.locX * blockScaleXt - blockScaleXt * 0.5)
+        levelPosY = (light.locY * blockScaleYt - blockScaleYt * 0.5)
+    else
+        levelPosX = light.levelPosX
+        levelPosY = light.levelPosY
+    end
+    
+    light.levelPosX = levelPosX
+    light.levelPosY = levelPosY
+    light.layer = layer
+    local cLocX = math.round((levelPosX + (blockScaleXt * 0.5)) / blockScaleXt)
+    local cLocY = math.round((levelPosY + (blockScaleYt * 0.5)) / blockScaleYt)
+    local tileX = (cLocX - 1) * blockScaleXt
+    local tileY = (cLocY - 1) * blockScaleYt
+    local startX = levelPosX - tileX
+    local startY = levelPosY - tileY
+    
+    local mL = Map.map.layers[layer].lighting
+    local mW = Map.map.layers[layer].world
+    local mT = Map.map.lightToggle
+    local dynamic = light.dynamic
+    local area = light.area
+    local areaIndex = light.areaIndex
+    local worldSizeXt = Map.map.width
+    local worldSizeYt = Map.map.height
+    
+    local id = light.id
+    local falloff1 = light.falloff[1]
+    local falloff2 = light.falloff[2]
+    local falloff3 = light.falloff[3]
+    
+    if not mL[cLocX][cLocY] then
+        mL[cLocX][cLocY] = {}
+    end
+    
+    if not light.locations then
+        light.locations = {}
+    end
+    
+    local count = 0
+    local time = tonumber(system.getTimer())
+    light.lightToggle = time
+    local toRadian = 0.01745329251994
+    
+    mL[cLocX][cLocY][id] = {}
+    mL[cLocX][cLocY][id].light = {light.source[1], light.source[2], light.source[3]}
+    mT[cLocX][cLocY] = time
+    area[areaIndex] = {cLocX, cLocY}
+    areaIndex = areaIndex + 1
+    
+    local i = ray
+    if i == 0 then
+        i = 0.00001
+    end
+    local breakX = false
+    local breakY = false
+    local angleR = i * toRadian --math.rad(i)
+    local x = (5 * math.cos(angleR))
+    local y = (5 * math.sin(angleR))
+    
+    local red = light.source[1]
+    local green = light.source[2]
+    local blue = light.source[3]
+    
+    if x > 0 and y < 0 then
+        --top right quadrant
+        
+        local Xangle = (i - 270) * toRadian --math.rad(i - 270)
+        local XcheckY = tileY
+        local XcheckX = math.tan(Xangle) * startY + levelPosX
+        local XdeltaY = blockScaleYt
+        local XdeltaX = math.tan(Xangle) * blockScaleYt
+        local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
+        local Xdistance = startY / math.cos(Xangle) / blockScaleXt
+        local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
+        
+        local Yangle = (360 - i) * toRadian --math.rad(360 - i)
+        local YcheckY = levelPosY - (math.tan(Yangle) * (tileX + blockScaleXt - levelPosX))
+        local YcheckX = tileX + blockScaleXt + 1
+        local YdeltaY = math.tan(Yangle) * blockScaleXt
+        local YdeltaX = blockScaleXt
+        local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
+        local Ydistance = (YcheckX - levelPosX) / math.cos(Yangle) / blockScaleYt
+        local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
+        
+        for j = 1, range * 2, 1 do
+            count = count + 1
+            
+            if Camera.worldWrapX then
+                if XlocX > worldSizeXt - Map.map.locOffsetX then
+                    XlocX = XlocX - worldSizeXt
+                end
+                if XlocX < 1 - Map.map.locOffsetX then
+                    XlocX = XlocX + worldSizeXt
+                end
+                if YlocX > worldSizeXt - Map.map.locOffsetX then
+                    YlocX = YlocX - worldSizeXt
+                end
+                if YlocX < 1 - Map.map.locOffsetX then
+                    YlocX = YlocX + worldSizeXt
+                end
+            end
+            if Camera.worldWrapY then
+                if XlocY > worldSizeYt - Map.map.locOffsetY then
+                    XlocY = XlocY - worldSizeYt
+                end
+                if XlocY < 1 - Map.map.locOffsetY then
+                    XlocY = XlocY + worldSizeYt
+                end
+                if YlocY > worldSizeYt - Map.map.locOffsetY then
+                    YlocY = YlocY - worldSizeYt
+                end
+                if YlocY < 1 - Map.map.locOffsetY then
+                    YlocY = YlocY + worldSizeYt
+                end
+            end
+            
+            if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
+                breakX = true
+            end
+            if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
+                breakY = true
+            end
+            if breakX and breakY then
+                break
+            end
+            
+            local red1,green1,blue1
+            
+            if Xdistance < Ydistance then
+                if Xdistance <= range then
+                    mT[XlocX][XlocY] = time
+                    area[areaIndex] = {XlocX, XlocY}
+                    areaIndex = areaIndex + 1
+                    red1 = red - (falloff1 * Xdistance)
+                    green1 = green - (falloff2 * Xdistance)
+                    blue1 = blue - (falloff3 * Xdistance)
+                    if not mL[XlocX][XlocY] then
+                        mL[XlocX][XlocY] = {}						
+                    elseif mL[XlocX][XlocY][id] then							
+                        if style == 1 then
+                            local tempLight = mL[XlocX][XlocY][id]
+                            red1 = (red1 + tempLight.light[1]) / 2
+                            green1 = (green1 + tempLight.light[2]) / 2
+                            blue1 = (blue1 + tempLight.light[3]) / 2
+                        elseif style == 2 then
+                            local tempLight = mL[XlocX][XlocY][id]
+                            if red1 > tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 > tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 > tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        else
+                            local tempLight = mL[XlocX][XlocY][id]
+                            if red1 < tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 < tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 < tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        end
+                    end
+                    mL[XlocX][XlocY][id] = {}
+                    mL[XlocX][XlocY][id].light = {red1, green1, blue1}
+                    
+                    if Map.map.lightingData[mW[XlocX][XlocY]] then
+                        local temp = Map.map.lightingData[mW[XlocX][XlocY]]
+                        red = red - temp.opacity[1]
+                        green = green - temp.opacity[2]
+                        blue = blue - temp.opacity[3]
+                    end
+                    
+                    XcheckX = XcheckX + XdeltaX
+                    XcheckY = XcheckY - XdeltaY
+                    XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY - 1
+                    Xdistance = Xdistance + XdeltaV
+                end
+            else
+                if Ydistance <= range then
+                    mT[YlocX][YlocY] = time
+                    area[areaIndex] = {YlocX, YlocY}
+                    areaIndex = areaIndex + 1
+                    red1 = red - (falloff1 * Ydistance)
+                    green1 = green - (falloff2 * Ydistance)
+                    blue1 = blue - (falloff3 * Ydistance)
+                    if not mL[YlocX][YlocY] then
+                        mL[YlocX][YlocY] = {}						
+                    elseif mL[YlocX][YlocY][id] then
+                        if style == 1 then
+                            local tempLight = mL[YlocX][YlocY][id]
+                            red1 = (red1 + tempLight.light[1]) / 2
+                            green1 = (green1 + tempLight.light[2]) / 2
+                            blue1 = (blue1 + tempLight.light[3]) / 2
+                        elseif style == 2 then
+                            local tempLight = mL[YlocX][YlocY][id]
+                            if red1 > tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 > tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 > tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        else
+                            local tempLight = mL[YlocX][YlocY][id]
+                            if red1 < tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 < tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 < tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        end
+                    end
+                    mL[YlocX][YlocY][id] = {}
+                    mL[YlocX][YlocY][id].light = {red1, green1, blue1}
+                    
+                    if Map.map.lightingData[mW[YlocX][YlocY]] then
+                        local temp = Map.map.lightingData[mW[YlocX][YlocY]]
+                        red = red - temp.opacity[1]
+                        green = green - temp.opacity[2]
+                        blue = blue - temp.opacity[3]
+                    end	
+                    
+                    YcheckX = YcheckX + YdeltaX
+                    YcheckY = YcheckY - YdeltaY
+                    YlocX, YlocY = YlocX + 1,math.ceil(YcheckY / blockScaleYt)
+                    Ydistance = Ydistance + YdeltaV
+                end
+            end
+            
+            
+            if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
+                break
+            end
+            
+            if Xdistance > range and Ydistance > range then
+                break
+            end
+        end
+        
+    elseif x > 0 and y > 0 then
+        --bottom right quadrant
+        
+        local Xangle = (90 - i) * toRadian --math.rad(90 - i)
+        local XcheckY = tileY + blockScaleYt + 1
+        local XcheckX = math.tan(Xangle) * (XcheckY - levelPosY) + levelPosX
+        local XdeltaY = blockScaleYt
+        local XdeltaX = math.tan(Xangle) * blockScaleYt
+        local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
+        local Xdistance = (XcheckY - levelPosY) / math.cos(Xangle) / blockScaleXt
+        local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
+        
+        local Yangle = i * toRadian --math.rad(i)
+        local YcheckY = math.tan(Yangle) * (tileX + blockScaleXt - levelPosX) + levelPosY
+        local YcheckX = tileX + blockScaleXt + 1
+        local YdeltaY = math.tan(Yangle) * blockScaleXt
+        local YdeltaX = blockScaleXt
+        local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
+        local Ydistance = (YcheckX - levelPosX) / math.cos(Yangle) / blockScaleYt
+        local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
+        
+        for j = 1, range * 2, 1 do
+            count = count + 1
+            
+            if Camera.worldWrapX then
+                if XlocX > worldSizeXt - Map.map.locOffsetX then
+                    XlocX = XlocX - worldSizeXt
+                end
+                if XlocX < 1 - Map.map.locOffsetX then
+                    XlocX = XlocX + worldSizeXt
+                end
+                if YlocX > worldSizeXt - Map.map.locOffsetX then
+                    YlocX = YlocX - worldSizeXt
+                end
+                if YlocX < 1 - Map.map.locOffsetX then
+                    YlocX = YlocX + worldSizeXt
+                end
+            end
+            if Camera.worldWrapY then
+                if XlocY > worldSizeYt - Map.map.locOffsetY then
+                    XlocY = XlocY - worldSizeYt
+                end
+                if XlocY < 1 - Map.map.locOffsetY then
+                    XlocY = XlocY + worldSizeYt
+                end
+                if YlocY > worldSizeYt - Map.map.locOffsetY then
+                    YlocY = YlocY - worldSizeYt
+                end
+                if YlocY < 1 - Map.map.locOffsetY then
+                    YlocY = YlocY + worldSizeYt
+                end
+            end
+            
+            if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
+                breakX = true
+            end
+            if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
+                breakY = true
+            end
+            if breakX and breakY then
+                break
+            end
+            
+            local red1,green1,blue1
+            
+            if Xdistance < Ydistance then
+                if Xdistance <= range then
+                    mT[XlocX][XlocY] = time
+                    area[areaIndex] = {XlocX, XlocY}
+                    areaIndex = areaIndex + 1
+                    red1 = red - (falloff1 * Xdistance)
+                    green1 = green - (falloff2 * Xdistance)
+                    blue1 = blue - (falloff3 * Xdistance)
+                    if not mL[XlocX][XlocY] then
+                        mL[XlocX][XlocY] = {}						
+                    elseif mL[XlocX][XlocY][id] then
+                        if style == 1 then
+                            local tempLight = mL[XlocX][XlocY][id]
+                            red1 = (red1 + tempLight.light[1]) / 2
+                            green1 = (green1 + tempLight.light[2]) / 2
+                            blue1 = (blue1 + tempLight.light[3]) / 2
+                        elseif style == 2 then
+                            local tempLight = mL[XlocX][XlocY][id]
+                            if red1 > tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 > tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 > tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        else
+                            local tempLight = mL[XlocX][XlocY][id]
+                            if red1 < tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 < tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 < tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        end
+                    end
+                    mL[XlocX][XlocY][id] = {}
+                    mL[XlocX][XlocY][id].light = {red1, green1, blue1}
+                    
+                    if Map.map.lightingData[mW[XlocX][XlocY]] then
+                        local temp = Map.map.lightingData[mW[XlocX][XlocY]]
+                        red = red - temp.opacity[1]
+                        green = green - temp.opacity[2]
+                        blue = blue - temp.opacity[3]
+                    end
+                    
+                    XcheckX = XcheckX + XdeltaX
+                    XcheckY = XcheckY + XdeltaY
+                    XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY + 1
+                    Xdistance = Xdistance + XdeltaV
+                end
+            else
+                if Ydistance <= range then
+                    mT[YlocX][YlocY] = time
+                    area[areaIndex] = {YlocX, YlocY}
+                    areaIndex = areaIndex + 1
+                    red1 = red - (falloff1 * Ydistance)
+                    green1 = green - (falloff2 * Ydistance)
+                    blue1 = blue - (falloff3 * Ydistance)
+                    if not mL[YlocX][YlocY] then
+                        mL[YlocX][YlocY] = {}						
+                    elseif mL[YlocX][YlocY][id] then
+                        if style == 1 then
+                            local tempLight = mL[YlocX][YlocY][id]
+                            red1 = (red1 + tempLight.light[1]) / 2
+                            green1 = (green1 + tempLight.light[2]) / 2
+                            blue1 = (blue1 + tempLight.light[3]) / 2
+                        elseif style == 2 then
+                            local tempLight = mL[YlocX][YlocY][id]
+                            if red1 > tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 > tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 > tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        else
+                            local tempLight = mL[YlocX][YlocY][id]
+                            if red1 < tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 < tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 < tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        end
+                    end
+                    mL[YlocX][YlocY][id] = {}
+                    mL[YlocX][YlocY][id].light = {red1, green1, blue1}
+                    
+                    if Map.map.lightingData[mW[YlocX][YlocY]] then
+                        local temp = Map.map.lightingData[mW[YlocX][YlocY]]
+                        red = red - temp.opacity[1]
+                        green = green - temp.opacity[2]
+                        blue = blue - temp.opacity[3]
+                    end	
+                    
+                    YcheckX = YcheckX + YdeltaX
+                    YcheckY = YcheckY + YdeltaY
+                    YlocX, YlocY = YlocX + 1,math.ceil(YcheckY / blockScaleYt)
+                    Ydistance = Ydistance + YdeltaV
+                end
+            end
+            
+            
+            if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
+                break
+            end
+            
+            if Xdistance > range and Ydistance > range then
+                break
+            end
+        end
+        
+    elseif x < 0 and y > 0 then
+        --bottom left quadrant
+        
+        local Xangle = (i - 90) * toRadian --math.rad(i - 90)
+        local XcheckY = tileY + blockScaleYt + 1
+        local XcheckX = levelPosX - (math.tan(Xangle) * (XcheckY - levelPosY))
+        local XdeltaY = blockScaleYt
+        local XdeltaX = math.tan(Xangle) * blockScaleYt
+        local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
+        local Xdistance = (XcheckY - levelPosY) / math.cos(Xangle) / blockScaleXt
+        local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
+        
+        local Yangle = (180 - i) * toRadian --math.rad(180 - i)
+        local YcheckY = math.tan(Yangle) * (levelPosX - tileX) + levelPosY
+        local YcheckX = tileX 
+        local YdeltaY = math.tan(Yangle) * blockScaleXt
+        local YdeltaX = blockScaleXt
+        local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
+        local Ydistance = startX / math.cos(Yangle) / blockScaleYt
+        local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
+        
+        for j = 1, range * 2, 1 do
+            count = count + 1
+            
+            if Camera.worldWrapX then
+                if XlocX > worldSizeXt - Map.map.locOffsetX then
+                    XlocX = XlocX - worldSizeXt
+                end
+                if XlocX < 1 - Map.map.locOffsetX then
+                    XlocX = XlocX + worldSizeXt
+                end
+                if YlocX > worldSizeXt - Map.map.locOffsetX then
+                    YlocX = YlocX - worldSizeXt
+                end
+                if YlocX < 1 - Map.map.locOffsetX then
+                    YlocX = YlocX + worldSizeXt
+                end
+            end
+            if Camera.worldWrapY then
+                if XlocY > worldSizeYt - Map.map.locOffsetY then
+                    XlocY = XlocY - worldSizeYt
+                end
+                if XlocY < 1 - Map.map.locOffsetY then
+                    XlocY = XlocY + worldSizeYt
+                end
+                if YlocY > worldSizeYt - Map.map.locOffsetY then
+                    YlocY = YlocY - worldSizeYt
+                end
+                if YlocY < 1 - Map.map.locOffsetY then
+                    YlocY = YlocY + worldSizeYt
+                end
+            end
+            
+            if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
+                breakX = true
+            end
+            if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
+                breakY = true
+            end
+            if breakX and breakY then
+                break
+            end
+            
+            local red1, green1, blue1
+            
+            if Xdistance < Ydistance then
+                if Xdistance <= range then
+                    mT[XlocX][XlocY] = time
+                    area[areaIndex] = {XlocX, XlocY}
+                    areaIndex = areaIndex + 1
+                    red1 = red - (falloff1 * Xdistance)
+                    green1 = green - (falloff2 * Xdistance)
+                    blue1 = blue - (falloff3 * Xdistance)
+                    if not mL[XlocX][XlocY] then
+                        mL[XlocX][XlocY] = {}						
+                    elseif mL[XlocX][XlocY][id] then
+                        if style == 1 then
+                            local tempLight = mL[XlocX][XlocY][id]
+                            red1 = (red1 + tempLight.light[1]) / 2
+                            green1 = (green1 + tempLight.light[2]) / 2
+                            blue1 = (blue1 + tempLight.light[3]) / 2
+                        elseif style == 2 then
+                            local tempLight = mL[XlocX][XlocY][id]
+                            if red1 > tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 > tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 > tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        else
+                            local tempLight = mL[XlocX][XlocY][id]
+                            if red1 < tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 < tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 < tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        end
+                    end
+                    mL[XlocX][XlocY][id] = {}
+                    mL[XlocX][XlocY][id].light = {red1, green1, blue1}
+                    
+                    if Map.map.lightingData[mW[XlocX][XlocY]] then
+                        local temp = Map.map.lightingData[mW[XlocX][XlocY]]
+                        red = red - temp.opacity[1]
+                        green = green - temp.opacity[2]
+                        blue = blue - temp.opacity[3]
+                    end
+                    
+                    XcheckX = XcheckX - XdeltaX
+                    XcheckY = XcheckY + XdeltaY
+                    XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY + 1
+                    Xdistance = Xdistance + XdeltaV
+                end
+            else
+                if Ydistance <= range then
+                    mT[YlocX][YlocY] = time
+                    area[areaIndex] = {YlocX, YlocY}
+                    areaIndex = areaIndex + 1
+                    red1 = red - (falloff1 * Ydistance)
+                    green1 = green - (falloff2 * Ydistance)
+                    blue1 = blue - (falloff3 * Ydistance)
+                    if not mL[YlocX][YlocY] then
+                        mL[YlocX][YlocY] = {}						
+                    elseif mL[YlocX][YlocY][id] then
+                        if style == 1 then
+                            local tempLight = mL[YlocX][YlocY][id]
+                            red1 = (red1 + tempLight.light[1]) / 2
+                            green1 = (green1 + tempLight.light[2]) / 2
+                            blue1 = (blue1 + tempLight.light[3]) / 2
+                        elseif style == 2 then
+                            local tempLight = mL[YlocX][YlocY][id]
+                            if red1 > tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 > tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 > tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        else
+                            local tempLight = mL[YlocX][YlocY][id]
+                            if red1 < tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 < tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 < tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        end
+                    end
+                    mL[YlocX][YlocY][id] = {}
+                    mL[YlocX][YlocY][id].light = {red1, green1, blue1}
+                    
+                    if Map.map.lightingData[mW[YlocX][YlocY]] then
+                        local temp = Map.map.lightingData[mW[YlocX][YlocY]]
+                        red = red - temp.opacity[1]
+                        green = green - temp.opacity[2]
+                        blue = blue - temp.opacity[3]
+                    end	
+                    
+                    YcheckX = YcheckX - YdeltaX
+                    YcheckY = YcheckY + YdeltaY
+                    YlocX, YlocY = YlocX - 1,math.ceil(YcheckY / blockScaleYt)
+                    Ydistance = Ydistance + YdeltaV
+                end
+            end
+            
+            
+            if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
+                break
+            end
+            
+            if Xdistance > range and Ydistance > range then
+                break
+            end
+        end
+        
+    elseif x < 0 and y < 0 then
+        --top left quadrant
+        
+        local Xangle = (270 - i) * toRadian --math.rad(270 - i)
+        local XcheckY = tileY
+        local XcheckX = levelPosX - (math.tan(Xangle) * (levelPosY - tileY))
+        local XdeltaY = blockScaleYt
+        local XdeltaX = math.tan(Xangle) * blockScaleYt
+        local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
+        local Xdistance = startY / math.cos(Xangle) / blockScaleXt
+        local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
+        
+        local Yangle = (i - 180) * toRadian --math.rad(i - 180)
+        local YcheckY = levelPosY - (math.tan(Yangle) * (levelPosX - tileX))
+        local YcheckX = tileX
+        local YdeltaY = math.tan(Yangle) * blockScaleXt
+        local YdeltaX = blockScaleXt
+        local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
+        local Ydistance = startX / math.cos(Yangle) / blockScaleYt
+        local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
+        
+        for j = 1, range * 2, 1 do
+            count = count + 1
+            
+            if Camera.worldWrapX then
+                if XlocX > worldSizeXt - Map.map.locOffsetX then
+                    XlocX = XlocX - worldSizeXt
+                end
+                if XlocX < 1 - Map.map.locOffsetX then
+                    XlocX = XlocX + worldSizeXt
+                end
+                if YlocX > worldSizeXt - Map.map.locOffsetX then
+                    YlocX = YlocX - worldSizeXt
+                end
+                if YlocX < 1 - Map.map.locOffsetX then
+                    YlocX = YlocX + worldSizeXt
+                end
+            end
+            if Camera.worldWrapY then
+                if XlocY > worldSizeYt - Map.map.locOffsetY then
+                    XlocY = XlocY - worldSizeYt
+                end
+                if XlocY < 1 - Map.map.locOffsetY then
+                    XlocY = XlocY + worldSizeYt
+                end
+                if YlocY > worldSizeYt - Map.map.locOffsetY then
+                    YlocY = YlocY - worldSizeYt
+                end
+                if YlocY < 1 - Map.map.locOffsetY then
+                    YlocY = YlocY + worldSizeYt
+                end
+            end
+            
+            if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
+                breakX = true
+            end
+            if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
+                breakY = true
+            end
+            if breakX and breakY then
+                break
+            end
+            
+            local red1, green1, blue1
+            
+            if Xdistance < Ydistance then
+                if Xdistance <= range then
+                    mT[XlocX][XlocY] = time
+                    area[areaIndex] = {XlocX, XlocY}
+                    areaIndex = areaIndex + 1
+                    red1 = red - (falloff1 * Xdistance)
+                    green1 = green - (falloff2 * Xdistance)
+                    blue1 = blue - (falloff3 * Xdistance)
+                    if not mL[XlocX][XlocY] then
+                        mL[XlocX][XlocY] = {}						
+                    elseif mL[XlocX][XlocY][id] then
+                        if style == 1 then
+                            local tempLight = mL[XlocX][XlocY][id]
+                            red1 = (red1 + tempLight.light[1]) / 2
+                            green1 = (green1 + tempLight.light[2]) / 2
+                            blue1 = (blue1 + tempLight.light[3]) / 2
+                        elseif style == 2 then
+                            local tempLight = mL[XlocX][XlocY][id]
+                            if red1 > tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 > tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 > tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        else
+                            local tempLight = mL[XlocX][XlocY][id]
+                            if red1 < tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 < tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 < tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        end
+                    end
+                    mL[XlocX][XlocY][id] = {}
+                    mL[XlocX][XlocY][id].light = {red1, green1, blue1}
+                    
+                    if Map.map.lightingData[mW[XlocX][XlocY]] then
+                        local temp = Map.map.lightingData[mW[XlocX][XlocY]]
+                        red = red - temp.opacity[1]
+                        green = green - temp.opacity[2]
+                        blue = blue - temp.opacity[3]
+                    end
+                    
+                    XcheckX = XcheckX - XdeltaX
+                    XcheckY = XcheckY - XdeltaY
+                    XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY - 1
+                    Xdistance = Xdistance + XdeltaV
+                end
+            else
+                if Ydistance <= range then
+                    mT[YlocX][YlocY] = time
+                    area[areaIndex] = {YlocX, YlocY}
+                    areaIndex = areaIndex + 1
+                    red1 = red - (falloff1 * Ydistance)
+                    green1 = green - (falloff2 * Ydistance)
+                    blue1 = blue - (falloff3 * Ydistance)
+                    if not mL[YlocX][YlocY] then
+                        mL[YlocX][YlocY] = {}						
+                    elseif mL[YlocX][YlocY][id] then
+                        if style == 1 then
+                            local tempLight = mL[YlocX][YlocY][id]
+                            red1 = (red1 + tempLight.light[1]) / 2
+                            green1 = (green1 + tempLight.light[2]) / 2
+                            blue1 = (blue1 + tempLight.light[3]) / 2
+                        elseif style == 2 then
+                            local tempLight = mL[YlocX][YlocY][id]
+                            if red1 > tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 > tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 > tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        else
+                            local tempLight = mL[YlocX][YlocY][id]
+                            if red1 < tempLight.light[1] then
+                                red1 = tempLight.light[1]
+                            end
+                            if green1 < tempLight.light[2] then
+                                green1 = tempLight.light[2]
+                            end
+                            if blue1 < tempLight.light[3] then
+                                blue1 = tempLight.light[3]
+                            end
+                        end
+                    end
+                    mL[YlocX][YlocY][id] = {}
+                    mL[YlocX][YlocY][id].light = {red1, green1, blue1}
+                    
+                    if Map.map.lightingData[mW[YlocX][YlocY]] then
+                        local temp = Map.map.lightingData[mW[YlocX][YlocY]]
+                        red = red - temp.opacity[1]
+                        green = green - temp.opacity[2]
+                        blue = blue - temp.opacity[3]
+                    end	
+                    
+                    YcheckX = YcheckX - YdeltaX
+                    YcheckY = YcheckY - YdeltaY
+                    YlocX, YlocY = YlocX - 1,math.ceil(YcheckY / blockScaleYt)
+                    Ydistance = Ydistance + YdeltaV
+                end
+            end			
+            
+            if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
+                break
+            end
+            
+            if Xdistance > range and Ydistance > range then
+                break
+            end
+        end		
+    end	
+    light.areaIndex = areaIndex
+end
+
+-----------------------------------------------------------
+
+Light.setPointLightSource = function(sprite)
+    Light.pointLightSource = sprite
+end
+
+-----------------------------------------------------------
+
+return Light
+
+end
+end
+
+do
+local _ENV = _ENV
+package.preload[ "src.Xml" ] = function( ... ) local arg = _G.arg;
+local Xml = {}
+
+-----------------------------------------------------------
+
+local json = require("json")
+
+local Map = require("src.Map")
+
+-----------------------------------------------------------
+
+Xml.data = nil
+
+-----------------------------------------------------------
+
+Xml.ToXmlString = function(value)
+    value = string.gsub (value, "&", "&amp;");		-- '&' -> "&amp;"
+    value = string.gsub (value, "<", "&lt;");		-- '<' -> "&lt;"
+    value = string.gsub (value, ">", "&gt;");		-- '>' -> "&gt;"
+    value = string.gsub (value, "\"", "&quot;");	-- '"' -> "&quot;"
+    value = string.gsub(value, "([^%w%&%;%p%\t% ])",
+    function (c) 
+        return string.format("&#x%X;", string.byte(c)) 
+    end);
+    return value;
+end
+
+-----------------------------------------------------------
+
+Xml.FromXmlString = function(value)
+    value = string.gsub(value, "&#x([%x]+)%;",
+    function(h) 
+        return string.char(tonumber(h,16)) 
+    end);
+    value = string.gsub(value, "&#([0-9]+)%;",
+    function(h) 
+        return string.char(tonumber(h,10)) 
+    end);
+    value = string.gsub (value, "&quot;", "\"");
+    value = string.gsub (value, "&apos;", "'");
+    value = string.gsub (value, "&gt;", ">");
+    value = string.gsub (value, "&lt;", "<");
+    value = string.gsub (value, "&amp;", "&");
+    return value;
+end
+
+-----------------------------------------------------------
+
+Xml.ParseArgs = function(s)
+    local arg = {}
+    string.gsub(s, "(%w+)=([\"'])(.-)%2", function (w, _, a)
+        arg[w] = Xml.FromXmlString(a);
+    end)
+    return arg
+end
+
+-----------------------------------------------------------
+
+Xml.loadFile = function(xmlFilename, base)
+    if not base then
+        base = system.ResourceDirectory
+    end
+    
+    local path = system.pathForFile( xmlFilename, base )
+    local hFile, err = io.open(path,"r");
+    
+    if hFile and not err then
+        local xmlText=hFile:read("*a"); -- read file content
+        io.close(hFile);
+        return Xml.ParseXmlText(xmlText),nil;
+    else
+        print( err )
+        return nil
+    end
+end
+
+-----------------------------------------------------------
+
+Xml.ParseXmlText = function(xmlText)
+    if not Map.mapStorage[Xml.src] then
+        Map.mapStorage[Xml.src] = {}
+    end
+    local layerIndex = 0
+    
+    local stack = {}
+    local top = {name=nil,value=nil,properties={},child={}}
+    table.insert(stack, top)
+    local ni,c,label,xarg, empty
+    local i, j = 1, 1
+    local triggerBase64 = false
+    local triggerXML = false
+    local triggerCSV = false
+    local x, y = 1, 1
+    while true do
+        local ni,j,c,label,xarg, empty = string.find(xmlText, "<(%/?)([%w:]+)(.-)(%/?)>", i)
+        if not ni then break end
+        local text = string.sub(xmlText, i, ni-1);
+        if not string.find(text, "^%s*$") then
+            top.value=(top.value or "")..Xml.FromXmlString(text);
+            if triggerBase64 then
+                triggerBase64 = false
+                --decode base64 directly into Map.map array
+                --------------------------------------------------------------
+                
+                local buffer = 0
+                local pos = 1
+                local bin ={}
+                local mult = 1
+                for i = 1,40 do
+                    bin[i] = mult
+                    mult = mult*2
+                end
+                local base64 = { ['A']=0,['B']=1,['C']=2,['D']=3,['E']=4,['F']=5,['G']=6,['H']=7,['I']=8,
+                    ['J']=9,['K']=10,['L']=11,['M']=12,['N']=13,['O']=14,['P']=15,['Q']=16,
+                    ['R']=17,['S']=18,['T']=19,['U']=20,['V']=21,['W']=22,['X']=23,['Y']=24,
+                    ['Z']=25,['a']=26,['b']=27,['c']=28,['d']=29,['e']=30,['f']=31,['g']=32,
+                    ['h']=33,['i']=34,['j']=35,['k']=36,['l']=37,['m']=38,['n']=39,['o']=40,
+                    ['p']=41,['q']=42,['r']=43,['s']=44,['t']=45,['u']=46,['v']=47,['w']=48,
+                    ['x']=49,['y']=50,['z']=51,['0']=52,['1']=53,['2']=54,['3']=55,['4']=56,
+                    ['5']=57,['6']=58,['7']=59,['8']=60,['9']=61,['+']=62,['/']=63,['=']=nil
+                }
+                local set = "[^%a%d%+%/%=]"
+                
+                Xml.data = string.gsub(top.value, set, "")    
+                
+                local size = 32
+                local val = {}
+                local rawPos = 1
+                local rawSize = #top.value
+                local char = ""
+                
+                while rawPos <= rawSize do
+                    while pos <= size and rawPos <= rawSize do
+                        char = string.sub(top.value,rawPos,rawPos)
+                        if base64[char] ~= nil then
+                            buffer = buffer * bin[7] + base64[char]
+                            pos = pos + 6
+                        end
+                        rawPos = rawPos + 1
+                    end
+                    if char == "=" then 
+                        break 
+                    end
+                    
+                    while pos < 33 do 
+                        buffer = buffer * bin[2] 
+                        pos = pos + 1
+                    end
+                    pos = pos - 32
+                    Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data+1] = math.floor((buffer%bin[33+pos-1])/bin[25+pos-1]) +
+                    math.floor((buffer%bin[25+pos-1])/bin[17+pos-1])*bin[9] +
+                    math.floor((buffer%bin[17+pos-1])/bin[9+pos-1])*bin[17] + 
+                    math.floor((buffer%bin[9+pos-1])/bin[pos])*bin[25]
+                    buffer = buffer % bin[pos]    	
+                end
+                --------------------------------------------------------------
+            end
+            if triggerCSV then
+                triggerCSV = false
+                Map.mapStorage[Xml.src].layers[layerIndex].data = json.decode("["..top.value.."]")
+            end
+        end
+        if empty == "/" then  -- empty element tag
+            if label == "tile" then
+                Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data + 1] = tonumber(xarg:sub(7, xarg:len() - 1))
+            else
+                table.insert(top.child, {name=label,value=nil,properties=Xml.ParseArgs(xarg),child={}})
+            end
+            if label == "layer" or label == "objectgroup" or label == "imagelayer"  then
+                layerIndex = layerIndex + 1
+                if not Map.mapStorage[Xml.src].layers then
+                    Map.mapStorage[Xml.src].layers = {}
+                end
+                Map.mapStorage[Xml.src].layers[layerIndex] = {}
+                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
+            end
+        elseif c == "" then   -- start tag
+            local props = Xml.ParseArgs(xarg)
+            top = {name=label, value=nil, properties=props, child={}}
+            table.insert(stack, top)   -- new level
+            if label == "Map.map" then
+                --
+            end
+            if label == "layer" or label == "objectgroup" or label == "imagelayer" then
+                layerIndex = layerIndex + 1
+                x, y = 1, 1
+                if not Map.mapStorage[Xml.src].layers then
+                    Map.mapStorage[Xml.src].layers = {}
+                end
+                Map.mapStorage[Xml.src].layers[layerIndex] = {}
+                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
+                if label == "layer" then
+                    Map.mapStorage[Xml.src].layers[layerIndex].data = {}
+                    Map.mapStorage[Xml.src].layers[layerIndex].world = {}
+                    Map.mapStorage[Xml.src].layers[layerIndex].world[1] = {}
+                end
+            end
+            if label == "data" then
+                if props.encoding == "base64" then
+                    triggerBase64 = true
+                    if props.compression then
+                        print("Error(loadMap): Layer data compression is not supported. MTE supports CSV, TMX, and Base64(uncompressed).")
+                    end
+                elseif props.encoding == "csv" then
+                    triggerCSV = true
+                elseif not props.encoding then
+                    triggerXML = true
+                end
+            end
+        else  -- end tag
+            local toclose = table.remove(stack)  -- remove top
+            top = stack[#stack]
+            if #stack < 1 then
+                error("XmlParser: nothing to close with "..label)
+            end
+            if toclose.name ~= label then
+                error("XmlParser: trying to close "..toclose.name.." with "..label)
+            end
+            table.insert(top.child, toclose)
+        end
+        i = j+1
+    end
+    local text = string.sub(xmlText, i);
+    if not string.find(text, "^%s*$") then
+        stack[#stack].value=(stack[#stack].value or "")..Xml.FromXmlString(text);
+    end
+    if #stack > 1 then
+        error("XmlParser: unclosed "..stack[stack.n].name)
+    end
+    return stack[1].child[1];
+end
+
+-----------------------------------------------------------
+
+return Xml
+
+end
+end
+
+do
+local _ENV = _ENV
 package.preload[ "src.Screen" ] = function( ... ) local arg = _G.arg;
 local Screen = {}
 
@@ -61,406 +2609,6 @@ Screen.UpdateScreenBounds()
 
 return Screen
 
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "src.Camera" ] = function( ... ) local arg = _G.arg;
-local Camera = {}
-
-local Map = require("src.Map")
-local Screen = require("src.Screen")
-
------------------------------------------------------------
-
-Camera.McameraX, Camera.McameraY = 0, 0
-Camera.McameraLocX, Camera.McameraLocY = 0, 0
-
-Camera.cameraX = 0
-Camera.cameraY = 0
-Camera.cameraLocX = 0
-Camera.cameraLocY = 0
-Camera.constrainTop = {}
-Camera.constrainBottom = {}
-Camera.constrainLeft = {}
-Camera.constrainRight = {}
-Camera.refMove = false
-Camera.override = {}
-Camera.cameraOnComplete = {}	
-Camera.cameraFocus = nil
-Camera.isCameraMoving = {}
-Camera.deltaX = {}
-Camera.deltaY = {}
-Camera.maxZoom = 9999
-Camera.minZoom = -9999
-Camera.parallaxToggle = {}
-Camera.worldWrapX = false
-Camera.worldWrapY = false
-Camera.layerWrapX = {}
-Camera.layerWrapY = {}
-Camera.currentScale = nil
-Camera.deltaZoom = nil
-Camera.screen = {}		
-Camera.cullingMargin = {0, 0, 0, 0}
-Camera.touchScroll = { false, nil, nil, nil, nil, nil }
-Camera.pinchZoom = false
-Camera.enableLighting = false
------------------------------------------------------------
-
-Camera.enableTouchScroll = function()
-    Camera.touchScroll[1] = true
-    if ( Map.map.layers and not Camera.pinchZoom ) then
-        Map.masterGroup:addEventListener("touch", Camera.touchScrollPinchZoom)
-    end
-end
-
------------------------------------------------------------
-
-Camera.enablePinchZoom = function()
-    Camera.pinchZoom = true
-    if ( Map.map.layers and not Camera.touchScroll[1] ) then
-        Map.masterGroup:addEventListener("touch", Camera.touchScrollPinchZoom)
-    end
-end
-
------------------------------------------------------------
-
-Camera.disableTouchScroll = function()
-    Camera.touchScroll[1] = false
-    if ( Map.map.layers and not Camera.pinchZoom ) then
-        Map.masterGroup:removeEventListener("touch", Camera.touchScrollPinchZoom)
-    end
-end
-
------------------------------------------------------------
-
-Camera.disablePinchZoom = function()
-    Camera.pinchZoom = false
-    if ( Map.map.layers and not Camera.touchScroll[1] ) then
-        Map.masterGroup:removeEventListener("touch", Camera.touchScrollPinchZoom)
-    end
-end
-
------------------------------------------------------------
-
-Camera.toggleWorldWrapX = function(command)
-    if command == true or command == false then
-        Camera.worldWrapX = command
-    else 
-        if Camera.worldWrapX then
-            Camera.worldWrapX = false
-        elseif not Camera.worldWrapX then
-            Camera.worldWrapX = true
-        end
-    end
-    if Map.map.properties then
-        for i = 1, #Map.map.layers, 1 do
-            Camera.layerWrapX[i] = Camera.worldWrapX
-        end
-    end
-end
-
------------------------------------------------------------
-
-Camera.toggleWorldWrapY = function(command)
-    if command == true or command == false then
-        Camera.worldWrapY = command
-    else
-        if Camera.worldWrapY then
-            Camera.worldWrapY = false
-        elseif not Camera.worldWrapY then
-            Camera.worldWrapY = true
-        end
-    end
-    if Map.map.properties then
-        for i = 1, #Map.map.layers, 1 do
-            Camera.layerWrapY[i] = Camera.worldWrapY
-        end
-    end
-end
-
------------------------------------------------------------
-
-Camera.easingHelper = function(distance, frames, kind)
-    local frameLength = display.fps
-    local move = {}
-    local total = 0
-    if not kind then
-        kind = easing.linear
-    end		
-    for i = 1, frames, 1 do
-        move[i] = kind((i - 1) * frameLength, frameLength * frames, 0, 1000)
-    end		
-    local move2 = {}
-    local total2 = 0
-    for i = 1, frames, 1 do
-        if i < frames then
-            move2[i] = move[i + 1] - move[i]
-        else
-            move2[i] = 1000 - move[i]
-        end
-        total2 = total2 + move2[i]
-    end
-    local mod2 = distance / total2
-    for i = 1, frames, 1 do
-        move2[i] = move2[i] * mod2
-    end	
-    return move2
-end
-
------------------------------------------------------------
-
-Camera.setCameraFocus = function(object, offsetX, offsetY)
-    if object then
-        Camera.cameraFocus = object
-        Camera.cameraFocus.cameraOffsetX = {}
-        Camera.cameraFocus.cameraOffsetY = {}
-        for i = 1, #Map.map.layers, 1 do
-            Camera.cameraFocus.cameraOffsetX[i] = offsetX or 0
-            Camera.cameraFocus.cameraOffsetY[i] = offsetY or 0
-        end
-    else
-        Camera.cameraFocus = nil
-    end
-end
-
------------------------------------------------------------
-
-Camera.zoom = function(scale, time, easing)
-    if not scale and not time then
-        if Camera.deltaZoom then
-            return true
-        end
-    else
-        Camera.currentScale = Map.masterGroup.xScale
-        local distance = Camera.currentScale - scale
-        time = math.ceil(time / Map.frameTime)
-        if not time or time < 1 then
-            time = 1
-        end
-        local delta = Camera.easingHelper(distance, time, easing)
-        Camera.deltaZoom = delta
-    end
-end
-
------------------------------------------------------------
-
-Camera.getCamera = function(layer)
-    if Map.map.orientation == Map.Type.Isometric then
-        if layer then
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
-            local isoPos = Map.isoUntransform2(cameraX, cameraY)
-            cameraX = isoPos[1]
-            cameraY = isoPos[2]
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-            return {levelPosX = cameraX, 
-                levelPosY = cameraY, 
-                locX = cameraLocX, 
-            locY = cameraLocY}
-        else
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-            local isoPos = Map.isoUntransform2(Camera.McameraX, Camera.McameraY)
-            Camera.McameraX = isoPos[1]
-            Camera.McameraY = isoPos[2]
-            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
-            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
-            return {levelPosX = Camera.McameraX, 
-                levelPosY = Camera.McameraY, 
-                locX = Camera.McameraLocX, 
-            locY = Camera.McameraLocY}
-        end
-    else
-        if layer then
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
-            return {levelPosX = cameraX, 
-                levelPosY = cameraY, 
-                locX = cameraLocX, 
-            locY = cameraLocY}
-        else
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
-            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
-            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
-            return {levelPosX = Camera.McameraX, 
-                levelPosY = Camera.McameraY, 
-                locX = Camera.McameraLocX, 
-            locY = Camera.McameraLocY}
-        end
-    end
-end
-
-
------------------------------------------------------------
-
-Camera.moveCameraTo = function(params)
-    local check = true
-    for i = 1, #Map.map.layers, 1 do
-        if i == params.layer or not params.layer then
-            if Camera.isCameraMoving[i] then
-                check = false
-            else
-                if params.disableParallax then
-                    Camera.parallaxToggle[i] = false
-                else
-                    params.disableParallax = false
-                end
-                Camera.cameraOnComplete[i] = false
-            end
-        end
-    end		
-    if check and not params.layer then
-        Camera.refMove = true
-        Camera.cameraOnComplete[1] = params.onComplete
-    end
-    for i = 1, #Map.map.layers, 1 do
-        if (i == params.layer or not params.layer) and check then
-            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
-            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)	
-            
-            if not params.time or params.time < 1 then
-                params.time = 1
-            end
-            local time = math.ceil(params.time / Map.frameTime)
-            local levelPosX = params.levelPosX
-            local levelPosY = params.levelPosY
-            if params.sprite then
-                if params.sprite.levelPosX then
-                    levelPosX = params.sprite.levelPosX + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
-                    levelPosY = params.sprite.levelPosY + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
-                else
-                    levelPosX = params.sprite.x + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
-                    levelPosY = params.sprite.y + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
-                end
-            end
-            if params.locX then
-                levelPosX = params.locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
-            end
-            if params.locY then
-                levelPosY = params.locY * Map.map.tileheight - (Map.map.tileheight / 2)
-            end				
-            
-            if not levelPosX then
-                levelPosX = cameraX
-            end
-            if not levelPosY then
-                levelPosY = cameraY
-            end
-            
-            if not Camera.layerWrapX[i] then
-                endX = levelPosX
-                distanceX = endX - cameraX
-                Camera.deltaX[i] = {}
-                Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
-            else
-                local tempPosX = levelPosX
-                if tempPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) then
-                    tempPosX = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
-                elseif tempPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
-                    tempPosX = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
-                end			
-                local tempPosX2 = tempPosX
-                if tempPosX > cameraX then
-                    tempPosX2 = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
-                elseif tempPosX < cameraX then
-                    tempPosX2 = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
-                end			
-                distanceXAcross = math.abs(cameraX - tempPosX)
-                distanceXWrap = math.abs(cameraX - tempPosX2)
-                if distanceXWrap < distanceXAcross then
-                    if tempPosX > cameraX then
-                        Map.masterGroup[i].x = (cameraX + Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
-                    elseif tempPosX < cameraX then
-                        Map.masterGroup[i].x = (cameraX - Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
-                    end
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                    endX = tempPosX
-                    distanceX = endX - cameraX
-                    Camera.deltaX[i] = {}
-                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
-                else
-                    endX = levelPosX
-                    distanceX = endX - cameraX
-                    Camera.deltaX[i] = {}
-                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
-                end
-            end				
-            if not Camera.layerWrapY[i] then
-                endY = levelPosY
-                distanceY = endY - cameraY
-                Camera.deltaY[i] = {}
-                Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
-            else
-                local tempPosY = levelPosY
-                if tempPosY > Map.map.layers[i].height * Map.map.tileheight then
-                    tempPosY = tempPosY - Map.map.layers[i].height * Map.map.tileheight
-                elseif tempPosY < 1 then
-                    tempPosY = tempPosY + Map.map.layers[i].height * Map.map.tileheight
-                end			
-                local tempPosY2 = tempPosY
-                if tempPosY > cameraY then
-                    tempPosY2 = tempPosY - Map.map.layers[i].height * Map.map.tileheight
-                elseif tempPosY < cameraY then
-                    tempPosY2 = tempPosY + Map.map.layers[i].height * Map.map.tileheight
-                end					
-                distanceYAcross = math.abs(cameraY - tempPosY)
-                distanceYWrap = math.abs(cameraY - tempPosY2)
-                if distanceYWrap < distanceYAcross then
-                    if tempPosY > cameraY then
-                        Map.masterGroup[i].y = (cameraY + Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
-                    elseif tempPosY < cameraY then
-                        Map.masterGroup[i].y = (cameraY - Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
-                    end
-                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
-                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
-                    endY = tempPosY
-                    distanceY = endY - cameraY
-                    Camera.deltaY[i] = {}
-                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
-                else
-                    endY = levelPosY
-                    distanceY = endY - cameraY
-                    Camera.deltaY[i] = {}
-                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
-                end
-            end				
-            Camera.isCameraMoving[i] = true
-            if not Camera.refMove then
-                Camera.cameraOnComplete[i] = params.onComplete
-            end
-        end
-    end
-end
-
------------------------------------------------------------
-
-Camera.removeCameraConstraints = function(layer)
-    if layer then
-        constrainLeft[layer] = nil
-        constrainTop[layer] = nil
-        constrainRight[layer] = nil
-        constrainBottom[layer] = nil
-        Map.masterGroup[layer].vars.constrainLayer = nil
-    else
-        for i = 1, #Map.map.layers, 1 do
-            constrainLeft[i] = nil
-            constrainTop[i] = nil
-            constrainRight[i] = nil
-            constrainBottom[i] = nil
-        end
-    end
-end
-
-return Camera
 end
 end
 
@@ -7165,458 +9313,6 @@ end
 
 do
 local _ENV = _ENV
-package.preload[ "src.Sprites" ] = function( ... ) local arg = _G.arg;
-local Sprites = {}
-
-local Camera = require("src.Camera")
-local Map = require("src.Map")
-local Light = require("src.Light")
-
-Sprites.sprites = {}
-
-Sprites.movingSprites = {}
-
-Sprites.tempObjects = {}
-
-Sprites.holdSprite = nil
-
-Sprites.enableSpriteSorting = false
-
------------------------------------------------------------
-
-Sprites.removeSprite = function(sprite, destroyObject)
-    if sprite.light then
-        sprite.removeLight()
-    end
-    if Camera.cameraFocus == sprite then
-        Camera.cameraFocus = nil
-    end
-    if Light.pointLightSource == sprite then
-        Light.pointLightSource = nil
-    end
-    if Sprites.movingSprites[sprite] then
-        Sprites.movingSprites[sprite] = nil
-    end
-    if sprite.name then
-        if Sprites.sprites[sprite.name] then
-            Sprites.sprites[sprite.name] = nil
-        end
-    end
-    if destroyObject == nil or destroyObject == true then
-        sprite:removeSelf()
-        sprite = nil
-    else
-        local stage = display.getCurrentStage()
-        stage:insert(sprite)
-    end
-end
-
------------------------------------------------------------
-
-Sprites.addSprite = function(sprite, setup)
-    local layer
-    if setup.level then
-        layer = Map.spriteLayers[setup.level]
-        if not layer then
-            --print("Warning(addSprite): No Sprite Layer at level "..setup.level..". Defaulting to "..Map.refLayer..".")
-            for i = 1, #Map.map.layers, 1 do
-                if Map.map.layers[i].properties.level == setup.level then
-                    layer = i
-                    break
-                end
-            end
-            if not layer then
-                layer = Map.refLayer
-            end
-        end
-    elseif setup.layer then
-        layer = setup.layer
-        if layer > #Map.map.layers then
-            print("Warning(addSprite): Layer out of bounds. Defaulting to "..Map.refLayer..".")
-            layer = Map.refLayer
-        end
-    else
-        if sprite.parent.vars then
-            layer = sprite.parent.vars.layer
-        else
-            --print("Warning(addSprite): You forgot to specify a Layer or level. Defaulting to "..Map.refLayer..".")
-            layer = Map.refLayer
-        end
-    end
-    
-    if setup.color then
-        sprite.color = setup.color
-    end
-    if sprite.lighting == nil then
-        if setup.lighting ~= nil then
-            sprite.lighting = setup.lighting
-        else
-            sprite.lighting = true
-        end
-    end
-    
-    if not setup.kind or setup.kind == "sprite" then
-        sprite.objType = 1
-        if sprite.lighting then
-            if not sprite.color then
-                sprite.color = {1, 1, 1}
-            end
-            local mL = Map.map.layers[setup.layer]
-            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
-        end
-    elseif setup.kind == "imageRect" then
-        sprite.objType = 2
-        if sprite.lighting then
-            if not sprite.color then
-                sprite.color = {1, 1, 1}
-            end
-            local mL = Map.map.layers[setup.layer]
-            sprite:setFillColor((mL.redLight)*sprite.color[1], (mL.greenLight)*sprite.color[2], (mL.blueLight)*sprite.color[3])
-        end
-    elseif setup.kind == "group" then
-        sprite.objType = 3
-        if sprite.lighting then
-            local mL = Map.map.layers[setup.layer]
-            for i = 1, sprite.numChildren, 1 do
-                if sprite[i]._class then
-                    if sprite.color and not sprite[i].color then
-                        sprite[i].color = sprite.color
-                    end
-                    if not sprite[i].color then
-                        sprite[i].color = {1, 1, 1}
-                    end
-                    sprite[i]:setFillColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
-                end
-            end
-        end
-    elseif setup.kind == "vector" then
-        sprite.objType = 4
-        if sprite.lighting then
-            local mL = Map.map.layers[setup.layer]
-            for i = 1, sprite.numChildren, 1 do
-                if sprite[i]._class then
-                    if sprite.color and not sprite[i].color then
-                        sprite[i].color = sprite.color
-                    end
-                    if not sprite[i].color then
-                        sprite[i].color = {1, 1, 1}
-                    end
-                    sprite[i]:setStrokeColor((mL.redLight)*sprite[i].color[1], (mL.greenLight)*sprite[i].color[2], (mL.blueLight)*sprite[i].color[3])
-                end
-            end
-        end
-    end
-    
-    if setup.followHeightMap then
-        sprite.followHeightMap = setup.followHeightMap
-    end
-    if setup.heightMap then
-        sprite.heightMap = setup.heightMap
-    end
-    if setup.offscreenPhysics then
-        sprite.offscreenPhysics = true
-    end
-    if Camera.enableLighting then
-        sprite.litBy = {}
-        sprite.prevLitBy = {}
-    end
-    local spriteName = sprite.name or setup.name
-    if not spriteName or spriteName == "" then
-        spriteName = ""..sprite.x.."_"..sprite.y.."_"..layer
-    end
-    if Sprites.sprites[spriteName] and Sprites.sprites[spriteName] ~= sprite then
-        local tempName = spriteName
-        local counter = 1
-        while Sprites.sprites[tempName] do
-            tempName = ""..spriteName..counter
-            counter = counter + 1
-        end
-        spriteName = tempName
-    end
-    sprite.name = spriteName
-    if not Sprites.sprites[spriteName] then
-        Sprites.sprites[spriteName] = sprite
-    end
-    sprite.park = false
-    if setup.park == true then
-        sprite.park = true
-    end
-    
-    if setup.sortSprite ~= nil then
-        sprite.sortSprite = setup.sortSprite
-    else
-        sprite.sortSprite = false
-    end
-    if setup.sortSpriteOnce ~= nil then
-        sprite.sortSpriteOnce = setup.sortSpriteOnce
-    end
-    if not sprite.constrainToMap then
-        sprite.constrainToMap = {true, true, true, true}
-    end
-    if setup.constrainToMap ~= nil then
-        sprite.constrainToMap = setup.constrainToMap
-    end
-    sprite.locX = nil
-    sprite.locY = nil
-    sprite.levelPosX = nil
-    sprite.levelPosY = nil
-    if setup.layer then
-        sprite.layer = setup.layer
-        sprite.level = Map.map.layers[setup.layer].properties.level
-    end
-    sprite.deltaX = {}
-    sprite.deltaY = {}
-    sprite.velX = nil
-    sprite.velY = nil
-    sprite.isMoving = false
-    if Map.map.orientation == Map.Type.Isometric then
-        if setup.levelWidth then
-            sprite.levelWidth = setup.levelWidth
-            if sprite.objType ~= 3 then
-                sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
-            end
-        else
-            sprite.levelWidth = sprite.width
-        end
-        if setup.levelHeight then
-            sprite.levelHeight = setup.levelHeight
-            if sprite.objType ~= 3 then
-                sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
-            end
-        else
-            sprite.levelHeight = sprite.height
-        end
-        if setup.levelPosX then
-            sprite.levelPosX = setup.levelPosX			
-            sprite.locX = Map.levelToLocX(sprite.x)			
-        elseif setup.locX then
-            sprite.levelPosX = Map.locToLevelPosX(setup.locX)			
-            sprite.locX = setup.locX			
-        else
-            sprite.levelPosX = sprite.x			
-            sprite.locX = Map.levelToLocX(sprite.x)
-        end
-        if setup.levelPosY then
-            sprite.levelPosY = setup.levelPosY
-            sprite.locY = Map.levelToLocY(sprite.y)
-        elseif setup.locY then
-            sprite.levelPosY = Map.locToLevelPosX(setup.locY)
-            sprite.locY = setup.locY
-        else
-            sprite.levelPosY = sprite.y
-            sprite.locY = Map.levelToLocY(sprite.y)
-        end
-        local isoPos = Map.isoTransform2(sprite.levelPosX, sprite.levelPosY)
-        sprite.x = isoPos[1]
-        sprite.y = isoPos[2]
-    else
-        if setup.levelWidth then
-            sprite.levelWidth = setup.levelWidth
-            sprite.xScale = setup.levelWidth / (setup.sourceWidth or sprite.width)
-        else
-            sprite.levelWidth = sprite.width
-        end
-        if setup.levelHeight then
-            sprite.levelHeight = setup.levelHeight
-            sprite.yScale = setup.levelHeight / (setup.sourceHeight or sprite.height)
-        else
-            sprite.levelHeight = sprite.height
-        end
-        if setup.levelPosX then
-            sprite.x = setup.levelPosX			
-            sprite.locX = Map.levelToLocX(sprite.x)			
-        elseif setup.locX then
-            sprite.x = Map.locToLevelPosX(setup.locX)			
-            sprite.locX = setup.locX			
-        else
-            sprite.locX = MaplevelToLocX(sprite.x)	
-        end
-        if setup.levelPosY then
-            sprite.y = setup.levelPosY
-            sprite.locY = Map.levelToLocY(sprite.y)
-        elseif setup.locY then
-            sprite.y = Map.locToLevelPosX(setup.locY)
-            sprite.locY = setup.locY
-        else
-            sprite.locY = Map.levelToLocY(sprite.y)
-        end
-        sprite.levelPosX = sprite.x
-        sprite.levelPosY = sprite.y
-    end
-    sprite.lightingListeners = {}
-    sprite.addLightingListener = function(self, name, listener)
-        sprite.lightingListeners[name] = true
-        sprite:addEventListener(name, listener)
-    end
-    sprite.addLight = function(light)
-        if Camera.enableLighting then
-            sprite.light = light
-            sprite.light.created = true
-            if not sprite.light.id then
-                sprite.light.id = Light.lightIDs
-            end
-            Light.lightIDs = Light.lightIDs + 1
-            
-            if not sprite.light.maxRange then
-                local maxRange = sprite.light.range[1]
-                for l = 1, 3, 1 do
-                    if sprite.light.range[l] > maxRange then
-                        maxRange = sprite.light.range[l]
-                    end
-                end
-                sprite.light.maxRange = maxRange
-            end
-            
-            if not sprite.light.levelPosX then
-                sprite.light.levelPosX = sprite.levelPosX
-                sprite.light.levelPosY = sprite.levelPosY
-            end
-            
-            if not sprite.light.alternatorCounter then
-                sprite.light.alternatorCounter = 1
-            end
-            
-            if sprite.light.rays then
-                sprite.light.areaIndex = 1
-            end
-            
-            if sprite.light.layerRelative then
-                sprite.light.layer = sprite.layer + sprite.light.layerRelative
-                if sprite.light.layer < 1 then
-                    sprite.light.layer = 1
-                end
-                if sprite.light.layer > #Map.map.layers then
-                    sprite.light.layer = #Map.map.layers
-                end
-            end				
-            
-            if not sprite.light.layer then
-                sprite.light.layer = sprite.layer
-            end
-            sprite.light.level = sprite.level
-            sprite.light.dynamic = true
-            sprite.light.area = {}
-            sprite.light.sprite = sprite
-            Map.map.lights[sprite.light.id] = sprite.light
-        end
-    end
-    sprite.removeLight = function()
-        if sprite.light.rays then
-            sprite.light.areaIndex = 1
-        end
-        
-        local length = #sprite.light.area
-        for i = length, 1, -1 do
-            local locX = sprite.light.area[i][1]
-            local locY = sprite.light.area[i][2]
-            sprite.light.area[i] = nil
-            
-            if Camera.worldWrapX then
-                if locX < 1 - Map.map.locOffsetX then
-                    locX = locX + Map.map.width
-                end
-                if locX > Map.map.width - Map.map.locOffsetX then
-                    locX = locX - Map.map.width
-                end
-            end
-            if Camera.worldWrapY then
-                if locY < 1 - Map.map.locOffsetY then
-                    locY = locY + Map.map.height
-                end
-                if locY > Map.map.height - Map.map.locOffsetY then
-                    locY = locY - Map.map.height
-                end
-            end
-            if sprite.light.layer then
-                if Map.map.layers[sprite.light.layer].lighting[locX] and Map.map.layers[sprite.light.layer].lighting[locX][locY] then
-                    Map.map.layers[sprite.light.layer].lighting[locX][locY][sprite.light.id] = nil
-                    Map.map.lightToggle[locX][locY] = tonumber(system.getTimer())
-                end	
-            end
-        end
-        Map.map.lights[sprite.light.id] = nil
-        sprite.light = nil
-    end		
-    if Camera.layerWrapX[i] and (sprite.wrapX == nil or sprite.wrapX == true) then
-        while sprite.levelPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) do
-            sprite.levelPosX = sprite.levelPosX + Map.map.layers[i].width * Map.map.tilewidth
-        end
-        while sprite.levelPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) do
-            sprite.levelPosX = sprite.levelPosX - Map.map.layers[i].width * Map.map.tilewidth
-        end		
-        if cameraX - sprite.x < Map.map.layers[i].width * Map.map.tilewidth / -2 then
-            --wrap around to the left
-            sprite.x = sprite.x - Map.map.layers[i].width * Map.map.tilewidth
-        elseif cameraX - sprite.x > Map.map.layers[i].width * Map.map.tilewidth / 2 then
-            --wrap around to the right
-            sprite.x = sprite.x + Map.map.layers[i].width * Map.map.tilewidth
-        end
-    end		
-    if Camera.layerWrapY[i] and (sprite.wrapY == nil or sprite.wrapY == true) then
-        while sprite.levelPosY < 1 - (Map.map.locOffsetY * Map.map.tileheight) do
-            sprite.levelPosY = sprite.levelPosY + Map.map.layers[i].height * Map.map.tileheight
-        end
-        while sprite.levelPosY > Map.map.layers[i].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) do
-            sprite.levelPosY = sprite.levelPosY - Map.map.layers[i].height * Map.map.tileheight
-        end		
-        if cameraY - sprite.y < Map.map.layers[i].height * Map.map.tileheight / -2 then
-            --wrap around to the left
-            sprite.y = sprite.y - Map.map.layers[i].height * Map.map.tileheight
-        elseif cameraY - sprite.y > Map.map.layers[i].height * Map.map.tileheight / 2 then
-            --wrap around to the right
-            sprite.y = sprite.y + Map.map.layers[i].height * Map.map.tileheight
-        end
-    end		
-    sprite.locX = math.ceil(sprite.levelPosX / Map.map.tilewidth)
-    sprite.locY = math.ceil(sprite.levelPosY / Map.map.tileheight)
-    if setup.offsetX then
-        sprite.offsetX = setup.offsetX
-        --sprite.anchorX = ((sprite.width / 2) - sprite.offsetX) / sprite.width
-        sprite.anchorX = (((sprite.levelWidth or sprite.width) / 2) - sprite.offsetX) / (sprite.levelWidth or sprite.width)
-    else
-        sprite.offsetX = 0
-    end
-    if setup.offsetY then
-        sprite.offsetY = setup.offsetY
-        --sprite.anchorY = ((sprite.height / 2) - sprite.offsetY) / sprite.height
-        sprite.anchorY = (((sprite.levelHeight or sprite.height) / 2) - sprite.offsetY) / (sprite.levelHeight or sprite.height)
-    else
-        sprite.offsetY = 0
-    end
-    if Map.map.orientation == Map.Type.Isometric then
-        if Map.isoSort == 1 then
-            Map.masterGroup[setup.layer][sprite.locX + sprite.locY - 1]:insert(sprite)
-            sprite.row = sprite.locX + sprite.locY - 1
-        else
-            Map.masterGroup[(sprite.locX + (sprite.level - 1)) + (sprite.locY + (sprite.level - 1)) - 1].layers[setup.layer]:insert(sprite)
-        end
-    else
-        Map.masterGroup[layer]:insert(sprite)
-    end	
-    
-    if setup.properties then
-        if not sprite.properties then
-            sprite.properties = {}
-        end
-        for key,value in pairs(setup.properties) do
-            sprite.properties[key] = value
-        end
-    end
-    
-    if setup.managePhysicsStates ~= nil then
-        sprite.managePhysicsStates = setup.managePhysicsStates
-    end
-    
-    return sprite		
-end
-
-return Sprites
-
-end
-end
-
-do
-local _ENV = _ENV
 package.preload[ "src.Map" ] = function( ... ) local arg = _G.arg;
 local Map = {}
 
@@ -8572,1912 +10268,6 @@ end
 
 do
 local _ENV = _ENV
-package.preload[ "src.Light" ] = function( ... ) local arg = _G.arg;
-local Light = {}
-
-local Map = require("src.Map")
-local Camera = require("src.Camera")
-
------------------------------------------------------------
-
-Light.pointLightSource = nil  
-
-Light.lightIDs = 0
-
-Light.lightingData = { 
-    fadeIn = 0.25, 
-    fadeOut = 0.25, 
-    refreshStyle = 2, 
-    refreshAlternator = 4, 
-    refreshCounter = 1, 
-    resolution = 1.1
-}
-
------------------------------------------------------------
-
-Light.processLight = function(layer, light)
-    local style = 3
-    local blockScaleXt = Map.map.tilewidth
-    local blockScaleYt = Map.map.tileheight
-    local range = light.maxRange
-    local steps = (2 * range * 3.14) * Light.lightingData.resolution 
-    local angleSteps = 360 / steps
-    
-    local r1, r2 = 1, 361
-    if light.arc then
-        r1 = light.arc[1]
-        r2 = light.arc[2]
-    end
-    
-    local levelPosX, levelPosY
-    if not light.levelPosX then
-        levelPosX = (light.locX * blockScaleXt - blockScaleXt * 0.5)
-        levelPosY = (light.locY * blockScaleYt - blockScaleYt * 0.5)
-    else
-        levelPosX = light.levelPosX
-        levelPosY = light.levelPosY
-    end
-    
-    light.levelPosX = levelPosX
-    light.levelPosY = levelPosY
-    light.layer = layer
-    local cLocX = math.round((levelPosX + (blockScaleXt * 0.5)) / blockScaleXt) --light.locX
-    local cLocY = math.round((levelPosY + (blockScaleYt * 0.5)) / blockScaleYt) --light.locY
-    light.locX = cLocX
-    light.locY = cLocY
-    local tileX = (cLocX - 1) * blockScaleXt
-    local tileY = (cLocY - 1) * blockScaleYt
-    local startX = levelPosX - tileX
-    local startY = levelPosY - tileY
-    
-    local mL = Map.map.layers[layer].lighting
-    local mW = Map.map.layers[layer].world
-    local mT = Map.map.lightToggle
-    local dynamic = light.dynamic
-    local area = light.area
-    local areaIndex = 1
-    local worldSizeXt = Map.map.width
-    local worldSizeYt = Map.map.height
-    
-    local id = light.id
-    local falloff1 = light.falloff[1]
-    local falloff2 = light.falloff[2]
-    local falloff3 = light.falloff[3]
-    
-    if not mL[cLocX][cLocY] then
-        mL[cLocX][cLocY] = {}
-    end
-    
-    if not light.locations then
-        light.locations = {}
-    end
-    
-    local count = 0
-    local time = tonumber(system.getTimer())
-    light.lightToggle = time
-    local toRadian = 0.01745329251994
-    
-    mL[cLocX][cLocY][id] = {}
-    mL[cLocX][cLocY][id].light = {light.source[1], light.source[2], light.source[3]}
-    mT[cLocX][cLocY] = time
-    area[areaIndex] = {cLocX, cLocY}
-    areaIndex = areaIndex + 1
-    
-    for i = r1, r2, angleSteps do
-        local breakX = false
-        local breakY = false
-        local angleR = i * toRadian --math.rad(i)
-        local x = (5 * math.cos(angleR))
-        local y = (5 * math.sin(angleR))
-        
-        local red = light.source[1]
-        local green = light.source[2]
-        local blue = light.source[3]
-        
-        if x > 0 and y < 0 then
-            --top right quadrant
-            
-            local Xangle = (i - 270) * toRadian --math.rad(i - 270)
-            local XcheckY = tileY
-            local XcheckX = math.tan(Xangle) * startY + levelPosX
-            local XdeltaY = blockScaleYt
-            local XdeltaX = math.tan(Xangle) * blockScaleYt
-            local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
-            local Xdistance = startY / math.cos(Xangle) / blockScaleXt
-            local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
-            
-            local Yangle = (360 - i) * toRadian --math.rad(360 - i)
-            local YcheckY = levelPosY - (math.tan(Yangle) * (tileX + blockScaleXt - levelPosX))
-            local YcheckX = tileX + blockScaleXt + 1
-            local YdeltaY = math.tan(Yangle) * blockScaleXt
-            local YdeltaX = blockScaleXt
-            local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
-            local Ydistance = (YcheckX - levelPosX) / math.cos(Yangle) / blockScaleYt
-            local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
-            
-            for j = 1, range * 2, 1 do
-                count = count + 1
-                
-                if Camera.worldWrapX then
-                    if XlocX > worldSizeXt - Map.map.locOffsetX then
-                        XlocX = XlocX - worldSizeXt
-                    end
-                    if XlocX < 1 - Map.map.locOffsetX then
-                        XlocX = XlocX + worldSizeXt
-                    end
-                    if YlocX > worldSizeXt - Map.map.locOffsetX then
-                        YlocX = YlocX - worldSizeXt
-                    end
-                    if YlocX < 1 - Map.map.locOffsetX then
-                        YlocX = YlocX + worldSizeXt
-                    end
-                end
-                if Camera.worldWrapY then
-                    if XlocY > worldSizeYt - Map.map.locOffsetY then
-                        XlocY = XlocY - worldSizeYt
-                    end
-                    if XlocY < 1 - Map.map.locOffsetY then
-                        XlocY = XlocY + worldSizeYt
-                    end
-                    if YlocY > worldSizeYt - Map.map.locOffsetY then
-                        YlocY = YlocY - worldSizeYt
-                    end
-                    if YlocY < 1 - Map.map.locOffsetY then
-                        YlocY = YlocY + worldSizeYt
-                    end
-                end
-                
-                if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
-                    breakX = true
-                end
-                if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
-                    breakY = true
-                end
-                if breakX and breakY then
-                    break
-                end
-                
-                local red1,green1,blue1
-                
-                if Xdistance < Ydistance then
-                    if Xdistance <= range then
-                        mT[XlocX][XlocY] = time
-                        area[areaIndex] = {XlocX, XlocY}
-                        areaIndex = areaIndex + 1
-                        red1 = red - (falloff1 * Xdistance)
-                        green1 = green - (falloff2 * Xdistance)
-                        blue1 = blue - (falloff3 * Xdistance)
-                        if not mL[XlocX][XlocY] then
-                            mL[XlocX][XlocY] = {}						
-                        elseif mL[XlocX][XlocY][id] then							
-                            if style == 1 then
-                                local tempLight = mL[XlocX][XlocY][id]
-                                red1 = (red1 + tempLight.light[1]) / 2
-                                green1 = (green1 + tempLight.light[2]) / 2
-                                blue1 = (blue1 + tempLight.light[3]) / 2
-                            elseif style == 2 then
-                                local tempLight = mL[XlocX][XlocY][id]
-                                if red1 > tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 > tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 > tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            else
-                                local tempLight = mL[XlocX][XlocY][id]
-                                if red1 < tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 < tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 < tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            end
-                        end
-                        mL[XlocX][XlocY][id] = {}
-                        mL[XlocX][XlocY][id].light = {red1, green1, blue1}
-                        
-                        if Map.map.lightingData[mW[XlocX][XlocY]] then
-                            local temp = Map.map.lightingData[mW[XlocX][XlocY]]
-                            red = red - temp.opacity[1]
-                            green = green - temp.opacity[2]
-                            blue = blue - temp.opacity[3]
-                        end
-                        
-                        XcheckX = XcheckX + XdeltaX
-                        XcheckY = XcheckY - XdeltaY
-                        XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY - 1
-                        Xdistance = Xdistance + XdeltaV
-                    end
-                else
-                    if Ydistance <= range then
-                        mT[YlocX][YlocY] = time
-                        area[areaIndex] = {YlocX, YlocY}
-                        areaIndex = areaIndex + 1
-                        red1 = red - (falloff1 * Ydistance)
-                        green1 = green - (falloff2 * Ydistance)
-                        blue1 = blue - (falloff3 * Ydistance)
-                        if not mL[YlocX][YlocY] then
-                            mL[YlocX][YlocY] = {}						
-                        elseif mL[YlocX][YlocY][id] then
-                            if style == 1 then
-                                local tempLight = mL[YlocX][YlocY][id]
-                                red1 = (red1 + tempLight.light[1]) / 2
-                                green1 = (green1 + tempLight.light[2]) / 2
-                                blue1 = (blue1 + tempLight.light[3]) / 2
-                            elseif style == 2 then
-                                local tempLight = mL[YlocX][YlocY][id]
-                                if red1 > tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 > tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 > tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            else
-                                local tempLight = mL[YlocX][YlocY][id]
-                                if red1 < tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 < tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 < tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            end
-                        end
-                        mL[YlocX][YlocY][id] = {}
-                        mL[YlocX][YlocY][id].light = {red1, green1, blue1}
-                        
-                        if Map.map.lightingData[mW[YlocX][YlocY]] then
-                            local temp = Map.map.lightingData[mW[YlocX][YlocY]]
-                            red = red - temp.opacity[1]
-                            green = green - temp.opacity[2]
-                            blue = blue - temp.opacity[3]
-                        end	
-                        
-                        YcheckX = YcheckX + YdeltaX
-                        YcheckY = YcheckY - YdeltaY
-                        YlocX, YlocY = YlocX + 1,math.ceil(YcheckY / blockScaleYt)
-                        Ydistance = Ydistance + YdeltaV
-                    end
-                end				
-                
-                if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
-                    break
-                end
-                
-                if Xdistance > range and Ydistance > range then
-                    break
-                end
-            end
-            
-        elseif x > 0 and y > 0 then
-            --bottom right quadrant
-            
-            local Xangle = (90 - i) * toRadian --math.rad(90 - i)
-            local XcheckY = tileY + blockScaleYt + 1
-            local XcheckX = math.tan(Xangle) * (XcheckY - levelPosY) + levelPosX
-            local XdeltaY = blockScaleYt
-            local XdeltaX = math.tan(Xangle) * blockScaleYt
-            local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
-            local Xdistance = (XcheckY - levelPosY) / math.cos(Xangle) / blockScaleXt
-            local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
-            
-            local Yangle = i * toRadian --math.rad(i)
-            local YcheckY = math.tan(Yangle) * (tileX + blockScaleXt - levelPosX) + levelPosY
-            local YcheckX = tileX + blockScaleXt + 1
-            local YdeltaY = math.tan(Yangle) * blockScaleXt
-            local YdeltaX = blockScaleXt
-            local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
-            local Ydistance = (YcheckX - levelPosX) / math.cos(Yangle) / blockScaleYt
-            local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
-            
-            for j = 1, range * 2, 1 do
-                count = count + 1
-                
-                if Camera.worldWrapX then
-                    if XlocX > worldSizeXt - Map.map.locOffsetX then
-                        XlocX = XlocX - worldSizeXt
-                    end
-                    if XlocX < 1 - Map.map.locOffsetX then
-                        XlocX = XlocX + worldSizeXt
-                    end
-                    if YlocX > worldSizeXt - Map.map.locOffsetX then
-                        YlocX = YlocX - worldSizeXt
-                    end
-                    if YlocX < 1 - Map.map.locOffsetX then
-                        YlocX = YlocX + worldSizeXt
-                    end
-                end
-                if Camera.worldWrapY then
-                    if XlocY > worldSizeYt - Map.map.locOffsetY then
-                        XlocY = XlocY - worldSizeYt
-                    end
-                    if XlocY < 1 - Map.map.locOffsetY then
-                        XlocY = XlocY + worldSizeYt
-                    end
-                    if YlocY > worldSizeYt - Map.map.locOffsetY then
-                        YlocY = YlocY - worldSizeYt
-                    end
-                    if YlocY < 1 - Map.map.locOffsetY then
-                        YlocY = YlocY + worldSizeYt
-                    end
-                end
-                
-                if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
-                    breakX = true
-                end
-                if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
-                    breakY = true
-                end
-                if breakX and breakY then
-                    break
-                end
-                
-                local red1,green1,blue1
-                
-                if Xdistance < Ydistance then
-                    if Xdistance <= range then
-                        mT[XlocX][XlocY] = time
-                        area[areaIndex] = {XlocX, XlocY}
-                        areaIndex = areaIndex + 1
-                        red1 = red - (falloff1 * Xdistance)
-                        green1 = green - (falloff2 * Xdistance)
-                        blue1 = blue - (falloff3 * Xdistance)
-                        if not mL[XlocX][XlocY] then
-                            mL[XlocX][XlocY] = {}						
-                        elseif mL[XlocX][XlocY][id] then
-                            if style == 1 then
-                                local tempLight = mL[XlocX][XlocY][id]
-                                red1 = (red1 + tempLight.light[1]) / 2
-                                green1 = (green1 + tempLight.light[2]) / 2
-                                blue1 = (blue1 + tempLight.light[3]) / 2
-                            elseif style == 2 then
-                                local tempLight = mL[XlocX][XlocY][id]
-                                if red1 > tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 > tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 > tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            else
-                                local tempLight = mL[XlocX][XlocY][id]
-                                if red1 < tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 < tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 < tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            end
-                        end
-                        mL[XlocX][XlocY][id] = {}
-                        mL[XlocX][XlocY][id].light = {red1, green1, blue1}
-                        
-                        if Map.map.lightingData[mW[XlocX][XlocY]] then
-                            local temp = Map.map.lightingData[mW[XlocX][XlocY]]
-                            red = red - temp.opacity[1]
-                            green = green - temp.opacity[2]
-                            blue = blue - temp.opacity[3]
-                        end
-                        
-                        XcheckX = XcheckX + XdeltaX
-                        XcheckY = XcheckY + XdeltaY
-                        XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY + 1
-                        Xdistance = Xdistance + XdeltaV
-                    end
-                else
-                    if Ydistance <= range then
-                        mT[YlocX][YlocY] = time
-                        area[areaIndex] = {YlocX, YlocY}
-                        areaIndex = areaIndex + 1
-                        red1 = red - (falloff1 * Ydistance)
-                        green1 = green - (falloff2 * Ydistance)
-                        blue1 = blue - (falloff3 * Ydistance)
-                        if not mL[YlocX][YlocY] then
-                            mL[YlocX][YlocY] = {}						
-                        elseif mL[YlocX][YlocY][id] then
-                            if style == 1 then
-                                local tempLight = mL[YlocX][YlocY][id]
-                                red1 = (red1 + tempLight.light[1]) / 2
-                                green1 = (green1 + tempLight.light[2]) / 2
-                                blue1 = (blue1 + tempLight.light[3]) / 2
-                            elseif style == 2 then
-                                local tempLight = mL[YlocX][YlocY][id]
-                                if red1 > tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 > tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 > tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            else
-                                local tempLight = mL[YlocX][YlocY][id]
-                                if red1 < tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 < tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 < tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            end
-                        end
-                        mL[YlocX][YlocY][id] = {}
-                        mL[YlocX][YlocY][id].light = {red1, green1, blue1}
-                        
-                        if Map.map.lightingData[mW[YlocX][YlocY]] then
-                            local temp = Map.map.lightingData[mW[YlocX][YlocY]]
-                            red = red - temp.opacity[1]
-                            green = green - temp.opacity[2]
-                            blue = blue - temp.opacity[3]
-                        end	
-                        
-                        YcheckX = YcheckX + YdeltaX
-                        YcheckY = YcheckY + YdeltaY
-                        YlocX, YlocY = YlocX + 1,math.ceil(YcheckY / blockScaleYt)
-                        Ydistance = Ydistance + YdeltaV
-                    end
-                end
-                
-                
-                if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
-                    break
-                end
-                
-                if Xdistance > range and Ydistance > range then
-                    break
-                end
-            end
-            
-        elseif x < 0 and y > 0 then
-            --bottom left quadrant
-            
-            local Xangle = (i - 90) * toRadian --math.rad(i - 90)
-            local XcheckY = tileY + blockScaleYt + 1
-            local XcheckX = levelPosX - (math.tan(Xangle) * (XcheckY - levelPosY))
-            local XdeltaY = blockScaleYt
-            local XdeltaX = math.tan(Xangle) * blockScaleYt
-            local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
-            local Xdistance = (XcheckY - levelPosY) / math.cos(Xangle) / blockScaleXt
-            local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
-            
-            local Yangle = (180 - i) * toRadian --math.rad(180 - i)
-            local YcheckY = math.tan(Yangle) * (levelPosX - tileX) + levelPosY
-            local YcheckX = tileX 
-            local YdeltaY = math.tan(Yangle) * blockScaleXt
-            local YdeltaX = blockScaleXt
-            local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
-            local Ydistance = startX / math.cos(Yangle) / blockScaleYt
-            local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
-            
-            for j = 1, range * 2, 1 do
-                count = count + 1
-                
-                if Camera.worldWrapX then
-                    if XlocX > worldSizeXt - Map.map.locOffsetX then
-                        XlocX = XlocX - worldSizeXt
-                    end
-                    if XlocX < 1 - Map.map.locOffsetX then
-                        XlocX = XlocX + worldSizeXt
-                    end
-                    if YlocX > worldSizeXt - Map.map.locOffsetX then
-                        YlocX = YlocX - worldSizeXt
-                    end
-                    if YlocX < 1 - Map.map.locOffsetX then
-                        YlocX = YlocX + worldSizeXt
-                    end
-                end
-                if Camera.worldWrapY then
-                    if XlocY > worldSizeYt - Map.map.locOffsetY then
-                        XlocY = XlocY - worldSizeYt
-                    end
-                    if XlocY < 1 - Map.map.locOffsetY then
-                        XlocY = XlocY + worldSizeYt
-                    end
-                    if YlocY > worldSizeYt - Map.map.locOffsetY then
-                        YlocY = YlocY - worldSizeYt
-                    end
-                    if YlocY < 1 - Map.map.locOffsetY then
-                        YlocY = YlocY + worldSizeYt
-                    end
-                end
-                
-                if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
-                    breakX = true
-                end
-                if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
-                    breakY = true
-                end
-                if breakX and breakY then
-                    break
-                end
-                
-                local red1, green1, blue1
-                
-                if Xdistance < Ydistance then
-                    if Xdistance <= range then
-                        mT[XlocX][XlocY] = time
-                        area[areaIndex] = {XlocX, XlocY}
-                        areaIndex = areaIndex + 1
-                        red1 = red - (falloff1 * Xdistance)
-                        green1 = green - (falloff2 * Xdistance)
-                        blue1 = blue - (falloff3 * Xdistance)
-                        if not mL[XlocX][XlocY] then
-                            mL[XlocX][XlocY] = {}						
-                        elseif mL[XlocX][XlocY][id] then
-                            if style == 1 then
-                                local tempLight = mL[XlocX][XlocY][id]
-                                red1 = (red1 + tempLight.light[1]) / 2
-                                green1 = (green1 + tempLight.light[2]) / 2
-                                blue1 = (blue1 + tempLight.light[3]) / 2
-                            elseif style == 2 then
-                                local tempLight = mL[XlocX][XlocY][id]
-                                if red1 > tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 > tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 > tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            else
-                                local tempLight = mL[XlocX][XlocY][id]
-                                if red1 < tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 < tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 < tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            end
-                        end
-                        mL[XlocX][XlocY][id] = {}
-                        mL[XlocX][XlocY][id].light = {red1, green1, blue1}
-                        
-                        if Map.map.lightingData[mW[XlocX][XlocY]] then
-                            local temp = Map.map.lightingData[mW[XlocX][XlocY]]
-                            red = red - temp.opacity[1]
-                            green = green - temp.opacity[2]
-                            blue = blue - temp.opacity[3]
-                        end
-                        
-                        XcheckX = XcheckX - XdeltaX
-                        XcheckY = XcheckY + XdeltaY
-                        XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY + 1
-                        Xdistance = Xdistance + XdeltaV
-                    end
-                else
-                    if Ydistance <= range then
-                        mT[YlocX][YlocY] = time
-                        area[areaIndex] = {YlocX, YlocY}
-                        areaIndex = areaIndex + 1
-                        red1 = red - (falloff1 * Ydistance)
-                        green1 = green - (falloff2 * Ydistance)
-                        blue1 = blue - (falloff3 * Ydistance)
-                        if not mL[YlocX][YlocY] then
-                            mL[YlocX][YlocY] = {}						
-                        elseif mL[YlocX][YlocY][id] then
-                            if style == 1 then
-                                local tempLight = mL[YlocX][YlocY][id]
-                                red1 = (red1 + tempLight.light[1]) / 2
-                                green1 = (green1 + tempLight.light[2]) / 2
-                                blue1 = (blue1 + tempLight.light[3]) / 2
-                            elseif style == 2 then
-                                local tempLight = mL[YlocX][YlocY][id]
-                                if red1 > tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 > tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 > tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            else
-                                local tempLight = mL[YlocX][YlocY][id]
-                                if red1 < tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 < tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 < tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            end
-                        end
-                        mL[YlocX][YlocY][id] = {}
-                        mL[YlocX][YlocY][id].light = {red1, green1, blue1}
-                        
-                        if Map.map.lightingData[mW[YlocX][YlocY]] then
-                            local temp = Map.map.lightingData[mW[YlocX][YlocY]]
-                            red = red - temp.opacity[1]
-                            green = green - temp.opacity[2]
-                            blue = blue - temp.opacity[3]
-                        end	
-                        
-                        YcheckX = YcheckX - YdeltaX
-                        YcheckY = YcheckY + YdeltaY
-                        YlocX, YlocY = YlocX - 1,math.ceil(YcheckY / blockScaleYt)
-                        Ydistance = Ydistance + YdeltaV
-                    end
-                end
-                
-                if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
-                    break
-                end
-                
-                if Xdistance > range and Ydistance > range then
-                    break
-                end				
-            end
-            
-        elseif x < 0 and y < 0 then
-            --top left quadrant
-            
-            local Xangle = (270 - i) * toRadian --math.rad(270 - i)
-            local XcheckY = tileY
-            local XcheckX = levelPosX - (math.tan(Xangle) * (levelPosY - tileY))
-            local XdeltaY = blockScaleYt
-            local XdeltaX = math.tan(Xangle) * blockScaleYt
-            local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
-            local Xdistance = startY / math.cos(Xangle) / blockScaleXt
-            local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
-            
-            local Yangle = (i - 180) * toRadian --math.rad(i - 180)
-            local YcheckY = levelPosY - (math.tan(Yangle) * (levelPosX - tileX))
-            local YcheckX = tileX
-            local YdeltaY = math.tan(Yangle) * blockScaleXt
-            local YdeltaX = blockScaleXt
-            local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
-            local Ydistance = startX / math.cos(Yangle) / blockScaleYt
-            local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
-            
-            for j = 1, range * 2, 1 do
-                count = count + 1
-                
-                if Camera.worldWrapX then
-                    if XlocX > worldSizeXt - Map.map.locOffsetX then
-                        XlocX = XlocX - worldSizeXt
-                    end
-                    if XlocX < 1 - Map.map.locOffsetX then
-                        XlocX = XlocX + worldSizeXt
-                    end
-                    if YlocX > worldSizeXt - Map.map.locOffsetX then
-                        YlocX = YlocX - worldSizeXt
-                    end
-                    if YlocX < 1 - Map.map.locOffsetX then
-                        YlocX = YlocX + worldSizeXt
-                    end
-                end
-                if Camera.worldWrapY then
-                    if XlocY > worldSizeYt - Map.map.locOffsetY then
-                        XlocY = XlocY - worldSizeYt
-                    end
-                    if XlocY < 1 - Map.map.locOffsetY then
-                        XlocY = XlocY + worldSizeYt
-                    end
-                    if YlocY > worldSizeYt - Map.map.locOffsetY then
-                        YlocY = YlocY - worldSizeYt
-                    end
-                    if YlocY < 1 - Map.map.locOffsetY then
-                        YlocY = YlocY + worldSizeYt
-                    end
-                end
-                
-                if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
-                    breakX = true
-                end
-                if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
-                    breakY = true
-                end
-                if breakX and breakY then
-                    break
-                end
-                
-                local red1, green1, blue1
-                
-                if Xdistance < Ydistance then
-                    if Xdistance <= range then
-                        mT[XlocX][XlocY] = time
-                        area[areaIndex] = {XlocX, XlocY}
-                        areaIndex = areaIndex + 1
-                        red1 = red - (falloff1 * Xdistance)
-                        green1 = green - (falloff2 * Xdistance)
-                        blue1 = blue - (falloff3 * Xdistance)
-                        if not mL[XlocX][XlocY] then
-                            mL[XlocX][XlocY] = {}						
-                        elseif mL[XlocX][XlocY][id] then
-                            if style == 1 then
-                                local tempLight = mL[XlocX][XlocY][id]
-                                red1 = (red1 + tempLight.light[1]) / 2
-                                green1 = (green1 + tempLight.light[2]) / 2
-                                blue1 = (blue1 + tempLight.light[3]) / 2
-                            elseif style == 2 then
-                                local tempLight = mL[XlocX][XlocY][id]
-                                if red1 > tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 > tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 > tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            else
-                                local tempLight = mL[XlocX][XlocY][id]
-                                if red1 < tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 < tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 < tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            end
-                        end
-                        mL[XlocX][XlocY][id] = {}
-                        mL[XlocX][XlocY][id].light = {red1, green1, blue1}
-                        
-                        if Map.map.lightingData[mW[XlocX][XlocY]] then
-                            local temp = Map.map.lightingData[mW[XlocX][XlocY]]
-                            red = red - temp.opacity[1]
-                            green = green - temp.opacity[2]
-                            blue = blue - temp.opacity[3]
-                        end
-                        
-                        XcheckX = XcheckX - XdeltaX
-                        XcheckY = XcheckY - XdeltaY
-                        XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY - 1
-                        Xdistance = Xdistance + XdeltaV
-                    end
-                else
-                    if Ydistance <= range then
-                        mT[YlocX][YlocY] = time
-                        area[areaIndex] = {YlocX, YlocY}
-                        areaIndex = areaIndex + 1
-                        red1 = red - (falloff1 * Ydistance)
-                        green1 = green - (falloff2 * Ydistance)
-                        blue1 = blue - (falloff3 * Ydistance)
-                        if not mL[YlocX][YlocY] then
-                            mL[YlocX][YlocY] = {}						
-                        elseif mL[YlocX][YlocY][id] then
-                            if style == 1 then
-                                local tempLight = mL[YlocX][YlocY][id]
-                                red1 = (red1 + tempLight.light[1]) / 2
-                                green1 = (green1 + tempLight.light[2]) / 2
-                                blue1 = (blue1 + tempLight.light[3]) / 2
-                            elseif style == 2 then
-                                local tempLight = mL[YlocX][YlocY][id]
-                                if red1 > tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 > tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 > tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            else
-                                local tempLight = mL[YlocX][YlocY][id]
-                                if red1 < tempLight.light[1] then
-                                    red1 = tempLight.light[1]
-                                end
-                                if green1 < tempLight.light[2] then
-                                    green1 = tempLight.light[2]
-                                end
-                                if blue1 < tempLight.light[3] then
-                                    blue1 = tempLight.light[3]
-                                end
-                            end
-                        end
-                        mL[YlocX][YlocY][id] = {}
-                        mL[YlocX][YlocY][id].light = {red1, green1, blue1}
-                        
-                        if Map.map.lightingData[mW[YlocX][YlocY]] then
-                            local temp = Map.map.lightingData[mW[YlocX][YlocY]]
-                            red = red - temp.opacity[1]
-                            green = green - temp.opacity[2]
-                            blue = blue - temp.opacity[3]
-                        end	
-                        
-                        YcheckX = YcheckX - YdeltaX
-                        YcheckY = YcheckY - YdeltaY
-                        YlocX, YlocY = YlocX - 1,math.ceil(YcheckY / blockScaleYt)
-                        Ydistance = Ydistance + YdeltaV
-                    end
-                end
-                
-                
-                if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
-                    break
-                end
-                
-                if Xdistance > range and Ydistance > range then
-                    break
-                end
-            end			
-        end
-    end
-end
-
-
-
------------------------------------------------------------
-
-
-
-Light.processLightRay = function(layer, light, ray)
-    local style = 3
-    local blockScaleXt = Map.map.tilewidth
-    local blockScaleYt = Map.map.tileheight
-    local range = light.maxRange
-    
-    local levelPosX, levelPosY
-    if not light.levelPosX then
-        levelPosX = (light.locX * blockScaleXt - blockScaleXt * 0.5)
-        levelPosY = (light.locY * blockScaleYt - blockScaleYt * 0.5)
-    else
-        levelPosX = light.levelPosX
-        levelPosY = light.levelPosY
-    end
-    
-    light.levelPosX = levelPosX
-    light.levelPosY = levelPosY
-    light.layer = layer
-    local cLocX = math.round((levelPosX + (blockScaleXt * 0.5)) / blockScaleXt)
-    local cLocY = math.round((levelPosY + (blockScaleYt * 0.5)) / blockScaleYt)
-    local tileX = (cLocX - 1) * blockScaleXt
-    local tileY = (cLocY - 1) * blockScaleYt
-    local startX = levelPosX - tileX
-    local startY = levelPosY - tileY
-    
-    local mL = Map.map.layers[layer].lighting
-    local mW = Map.map.layers[layer].world
-    local mT = Map.map.lightToggle
-    local dynamic = light.dynamic
-    local area = light.area
-    local areaIndex = light.areaIndex
-    local worldSizeXt = Map.map.width
-    local worldSizeYt = Map.map.height
-    
-    local id = light.id
-    local falloff1 = light.falloff[1]
-    local falloff2 = light.falloff[2]
-    local falloff3 = light.falloff[3]
-    
-    if not mL[cLocX][cLocY] then
-        mL[cLocX][cLocY] = {}
-    end
-    
-    if not light.locations then
-        light.locations = {}
-    end
-    
-    local count = 0
-    local time = tonumber(system.getTimer())
-    light.lightToggle = time
-    local toRadian = 0.01745329251994
-    
-    mL[cLocX][cLocY][id] = {}
-    mL[cLocX][cLocY][id].light = {light.source[1], light.source[2], light.source[3]}
-    mT[cLocX][cLocY] = time
-    area[areaIndex] = {cLocX, cLocY}
-    areaIndex = areaIndex + 1
-    
-    local i = ray
-    if i == 0 then
-        i = 0.00001
-    end
-    local breakX = false
-    local breakY = false
-    local angleR = i * toRadian --math.rad(i)
-    local x = (5 * math.cos(angleR))
-    local y = (5 * math.sin(angleR))
-    
-    local red = light.source[1]
-    local green = light.source[2]
-    local blue = light.source[3]
-    
-    if x > 0 and y < 0 then
-        --top right quadrant
-        
-        local Xangle = (i - 270) * toRadian --math.rad(i - 270)
-        local XcheckY = tileY
-        local XcheckX = math.tan(Xangle) * startY + levelPosX
-        local XdeltaY = blockScaleYt
-        local XdeltaX = math.tan(Xangle) * blockScaleYt
-        local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
-        local Xdistance = startY / math.cos(Xangle) / blockScaleXt
-        local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
-        
-        local Yangle = (360 - i) * toRadian --math.rad(360 - i)
-        local YcheckY = levelPosY - (math.tan(Yangle) * (tileX + blockScaleXt - levelPosX))
-        local YcheckX = tileX + blockScaleXt + 1
-        local YdeltaY = math.tan(Yangle) * blockScaleXt
-        local YdeltaX = blockScaleXt
-        local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
-        local Ydistance = (YcheckX - levelPosX) / math.cos(Yangle) / blockScaleYt
-        local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
-        
-        for j = 1, range * 2, 1 do
-            count = count + 1
-            
-            if Camera.worldWrapX then
-                if XlocX > worldSizeXt - Map.map.locOffsetX then
-                    XlocX = XlocX - worldSizeXt
-                end
-                if XlocX < 1 - Map.map.locOffsetX then
-                    XlocX = XlocX + worldSizeXt
-                end
-                if YlocX > worldSizeXt - Map.map.locOffsetX then
-                    YlocX = YlocX - worldSizeXt
-                end
-                if YlocX < 1 - Map.map.locOffsetX then
-                    YlocX = YlocX + worldSizeXt
-                end
-            end
-            if Camera.worldWrapY then
-                if XlocY > worldSizeYt - Map.map.locOffsetY then
-                    XlocY = XlocY - worldSizeYt
-                end
-                if XlocY < 1 - Map.map.locOffsetY then
-                    XlocY = XlocY + worldSizeYt
-                end
-                if YlocY > worldSizeYt - Map.map.locOffsetY then
-                    YlocY = YlocY - worldSizeYt
-                end
-                if YlocY < 1 - Map.map.locOffsetY then
-                    YlocY = YlocY + worldSizeYt
-                end
-            end
-            
-            if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
-                breakX = true
-            end
-            if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
-                breakY = true
-            end
-            if breakX and breakY then
-                break
-            end
-            
-            local red1,green1,blue1
-            
-            if Xdistance < Ydistance then
-                if Xdistance <= range then
-                    mT[XlocX][XlocY] = time
-                    area[areaIndex] = {XlocX, XlocY}
-                    areaIndex = areaIndex + 1
-                    red1 = red - (falloff1 * Xdistance)
-                    green1 = green - (falloff2 * Xdistance)
-                    blue1 = blue - (falloff3 * Xdistance)
-                    if not mL[XlocX][XlocY] then
-                        mL[XlocX][XlocY] = {}						
-                    elseif mL[XlocX][XlocY][id] then							
-                        if style == 1 then
-                            local tempLight = mL[XlocX][XlocY][id]
-                            red1 = (red1 + tempLight.light[1]) / 2
-                            green1 = (green1 + tempLight.light[2]) / 2
-                            blue1 = (blue1 + tempLight.light[3]) / 2
-                        elseif style == 2 then
-                            local tempLight = mL[XlocX][XlocY][id]
-                            if red1 > tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 > tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 > tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        else
-                            local tempLight = mL[XlocX][XlocY][id]
-                            if red1 < tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 < tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 < tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        end
-                    end
-                    mL[XlocX][XlocY][id] = {}
-                    mL[XlocX][XlocY][id].light = {red1, green1, blue1}
-                    
-                    if Map.map.lightingData[mW[XlocX][XlocY]] then
-                        local temp = Map.map.lightingData[mW[XlocX][XlocY]]
-                        red = red - temp.opacity[1]
-                        green = green - temp.opacity[2]
-                        blue = blue - temp.opacity[3]
-                    end
-                    
-                    XcheckX = XcheckX + XdeltaX
-                    XcheckY = XcheckY - XdeltaY
-                    XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY - 1
-                    Xdistance = Xdistance + XdeltaV
-                end
-            else
-                if Ydistance <= range then
-                    mT[YlocX][YlocY] = time
-                    area[areaIndex] = {YlocX, YlocY}
-                    areaIndex = areaIndex + 1
-                    red1 = red - (falloff1 * Ydistance)
-                    green1 = green - (falloff2 * Ydistance)
-                    blue1 = blue - (falloff3 * Ydistance)
-                    if not mL[YlocX][YlocY] then
-                        mL[YlocX][YlocY] = {}						
-                    elseif mL[YlocX][YlocY][id] then
-                        if style == 1 then
-                            local tempLight = mL[YlocX][YlocY][id]
-                            red1 = (red1 + tempLight.light[1]) / 2
-                            green1 = (green1 + tempLight.light[2]) / 2
-                            blue1 = (blue1 + tempLight.light[3]) / 2
-                        elseif style == 2 then
-                            local tempLight = mL[YlocX][YlocY][id]
-                            if red1 > tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 > tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 > tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        else
-                            local tempLight = mL[YlocX][YlocY][id]
-                            if red1 < tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 < tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 < tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        end
-                    end
-                    mL[YlocX][YlocY][id] = {}
-                    mL[YlocX][YlocY][id].light = {red1, green1, blue1}
-                    
-                    if Map.map.lightingData[mW[YlocX][YlocY]] then
-                        local temp = Map.map.lightingData[mW[YlocX][YlocY]]
-                        red = red - temp.opacity[1]
-                        green = green - temp.opacity[2]
-                        blue = blue - temp.opacity[3]
-                    end	
-                    
-                    YcheckX = YcheckX + YdeltaX
-                    YcheckY = YcheckY - YdeltaY
-                    YlocX, YlocY = YlocX + 1,math.ceil(YcheckY / blockScaleYt)
-                    Ydistance = Ydistance + YdeltaV
-                end
-            end
-            
-            
-            if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
-                break
-            end
-            
-            if Xdistance > range and Ydistance > range then
-                break
-            end
-        end
-        
-    elseif x > 0 and y > 0 then
-        --bottom right quadrant
-        
-        local Xangle = (90 - i) * toRadian --math.rad(90 - i)
-        local XcheckY = tileY + blockScaleYt + 1
-        local XcheckX = math.tan(Xangle) * (XcheckY - levelPosY) + levelPosX
-        local XdeltaY = blockScaleYt
-        local XdeltaX = math.tan(Xangle) * blockScaleYt
-        local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
-        local Xdistance = (XcheckY - levelPosY) / math.cos(Xangle) / blockScaleXt
-        local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
-        
-        local Yangle = i * toRadian --math.rad(i)
-        local YcheckY = math.tan(Yangle) * (tileX + blockScaleXt - levelPosX) + levelPosY
-        local YcheckX = tileX + blockScaleXt + 1
-        local YdeltaY = math.tan(Yangle) * blockScaleXt
-        local YdeltaX = blockScaleXt
-        local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
-        local Ydistance = (YcheckX - levelPosX) / math.cos(Yangle) / blockScaleYt
-        local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
-        
-        for j = 1, range * 2, 1 do
-            count = count + 1
-            
-            if Camera.worldWrapX then
-                if XlocX > worldSizeXt - Map.map.locOffsetX then
-                    XlocX = XlocX - worldSizeXt
-                end
-                if XlocX < 1 - Map.map.locOffsetX then
-                    XlocX = XlocX + worldSizeXt
-                end
-                if YlocX > worldSizeXt - Map.map.locOffsetX then
-                    YlocX = YlocX - worldSizeXt
-                end
-                if YlocX < 1 - Map.map.locOffsetX then
-                    YlocX = YlocX + worldSizeXt
-                end
-            end
-            if Camera.worldWrapY then
-                if XlocY > worldSizeYt - Map.map.locOffsetY then
-                    XlocY = XlocY - worldSizeYt
-                end
-                if XlocY < 1 - Map.map.locOffsetY then
-                    XlocY = XlocY + worldSizeYt
-                end
-                if YlocY > worldSizeYt - Map.map.locOffsetY then
-                    YlocY = YlocY - worldSizeYt
-                end
-                if YlocY < 1 - Map.map.locOffsetY then
-                    YlocY = YlocY + worldSizeYt
-                end
-            end
-            
-            if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
-                breakX = true
-            end
-            if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
-                breakY = true
-            end
-            if breakX and breakY then
-                break
-            end
-            
-            local red1,green1,blue1
-            
-            if Xdistance < Ydistance then
-                if Xdistance <= range then
-                    mT[XlocX][XlocY] = time
-                    area[areaIndex] = {XlocX, XlocY}
-                    areaIndex = areaIndex + 1
-                    red1 = red - (falloff1 * Xdistance)
-                    green1 = green - (falloff2 * Xdistance)
-                    blue1 = blue - (falloff3 * Xdistance)
-                    if not mL[XlocX][XlocY] then
-                        mL[XlocX][XlocY] = {}						
-                    elseif mL[XlocX][XlocY][id] then
-                        if style == 1 then
-                            local tempLight = mL[XlocX][XlocY][id]
-                            red1 = (red1 + tempLight.light[1]) / 2
-                            green1 = (green1 + tempLight.light[2]) / 2
-                            blue1 = (blue1 + tempLight.light[3]) / 2
-                        elseif style == 2 then
-                            local tempLight = mL[XlocX][XlocY][id]
-                            if red1 > tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 > tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 > tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        else
-                            local tempLight = mL[XlocX][XlocY][id]
-                            if red1 < tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 < tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 < tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        end
-                    end
-                    mL[XlocX][XlocY][id] = {}
-                    mL[XlocX][XlocY][id].light = {red1, green1, blue1}
-                    
-                    if Map.map.lightingData[mW[XlocX][XlocY]] then
-                        local temp = Map.map.lightingData[mW[XlocX][XlocY]]
-                        red = red - temp.opacity[1]
-                        green = green - temp.opacity[2]
-                        blue = blue - temp.opacity[3]
-                    end
-                    
-                    XcheckX = XcheckX + XdeltaX
-                    XcheckY = XcheckY + XdeltaY
-                    XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY + 1
-                    Xdistance = Xdistance + XdeltaV
-                end
-            else
-                if Ydistance <= range then
-                    mT[YlocX][YlocY] = time
-                    area[areaIndex] = {YlocX, YlocY}
-                    areaIndex = areaIndex + 1
-                    red1 = red - (falloff1 * Ydistance)
-                    green1 = green - (falloff2 * Ydistance)
-                    blue1 = blue - (falloff3 * Ydistance)
-                    if not mL[YlocX][YlocY] then
-                        mL[YlocX][YlocY] = {}						
-                    elseif mL[YlocX][YlocY][id] then
-                        if style == 1 then
-                            local tempLight = mL[YlocX][YlocY][id]
-                            red1 = (red1 + tempLight.light[1]) / 2
-                            green1 = (green1 + tempLight.light[2]) / 2
-                            blue1 = (blue1 + tempLight.light[3]) / 2
-                        elseif style == 2 then
-                            local tempLight = mL[YlocX][YlocY][id]
-                            if red1 > tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 > tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 > tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        else
-                            local tempLight = mL[YlocX][YlocY][id]
-                            if red1 < tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 < tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 < tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        end
-                    end
-                    mL[YlocX][YlocY][id] = {}
-                    mL[YlocX][YlocY][id].light = {red1, green1, blue1}
-                    
-                    if Map.map.lightingData[mW[YlocX][YlocY]] then
-                        local temp = Map.map.lightingData[mW[YlocX][YlocY]]
-                        red = red - temp.opacity[1]
-                        green = green - temp.opacity[2]
-                        blue = blue - temp.opacity[3]
-                    end	
-                    
-                    YcheckX = YcheckX + YdeltaX
-                    YcheckY = YcheckY + YdeltaY
-                    YlocX, YlocY = YlocX + 1,math.ceil(YcheckY / blockScaleYt)
-                    Ydistance = Ydistance + YdeltaV
-                end
-            end
-            
-            
-            if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
-                break
-            end
-            
-            if Xdistance > range and Ydistance > range then
-                break
-            end
-        end
-        
-    elseif x < 0 and y > 0 then
-        --bottom left quadrant
-        
-        local Xangle = (i - 90) * toRadian --math.rad(i - 90)
-        local XcheckY = tileY + blockScaleYt + 1
-        local XcheckX = levelPosX - (math.tan(Xangle) * (XcheckY - levelPosY))
-        local XdeltaY = blockScaleYt
-        local XdeltaX = math.tan(Xangle) * blockScaleYt
-        local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
-        local Xdistance = (XcheckY - levelPosY) / math.cos(Xangle) / blockScaleXt
-        local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
-        
-        local Yangle = (180 - i) * toRadian --math.rad(180 - i)
-        local YcheckY = math.tan(Yangle) * (levelPosX - tileX) + levelPosY
-        local YcheckX = tileX 
-        local YdeltaY = math.tan(Yangle) * blockScaleXt
-        local YdeltaX = blockScaleXt
-        local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
-        local Ydistance = startX / math.cos(Yangle) / blockScaleYt
-        local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
-        
-        for j = 1, range * 2, 1 do
-            count = count + 1
-            
-            if Camera.worldWrapX then
-                if XlocX > worldSizeXt - Map.map.locOffsetX then
-                    XlocX = XlocX - worldSizeXt
-                end
-                if XlocX < 1 - Map.map.locOffsetX then
-                    XlocX = XlocX + worldSizeXt
-                end
-                if YlocX > worldSizeXt - Map.map.locOffsetX then
-                    YlocX = YlocX - worldSizeXt
-                end
-                if YlocX < 1 - Map.map.locOffsetX then
-                    YlocX = YlocX + worldSizeXt
-                end
-            end
-            if Camera.worldWrapY then
-                if XlocY > worldSizeYt - Map.map.locOffsetY then
-                    XlocY = XlocY - worldSizeYt
-                end
-                if XlocY < 1 - Map.map.locOffsetY then
-                    XlocY = XlocY + worldSizeYt
-                end
-                if YlocY > worldSizeYt - Map.map.locOffsetY then
-                    YlocY = YlocY - worldSizeYt
-                end
-                if YlocY < 1 - Map.map.locOffsetY then
-                    YlocY = YlocY + worldSizeYt
-                end
-            end
-            
-            if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
-                breakX = true
-            end
-            if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
-                breakY = true
-            end
-            if breakX and breakY then
-                break
-            end
-            
-            local red1, green1, blue1
-            
-            if Xdistance < Ydistance then
-                if Xdistance <= range then
-                    mT[XlocX][XlocY] = time
-                    area[areaIndex] = {XlocX, XlocY}
-                    areaIndex = areaIndex + 1
-                    red1 = red - (falloff1 * Xdistance)
-                    green1 = green - (falloff2 * Xdistance)
-                    blue1 = blue - (falloff3 * Xdistance)
-                    if not mL[XlocX][XlocY] then
-                        mL[XlocX][XlocY] = {}						
-                    elseif mL[XlocX][XlocY][id] then
-                        if style == 1 then
-                            local tempLight = mL[XlocX][XlocY][id]
-                            red1 = (red1 + tempLight.light[1]) / 2
-                            green1 = (green1 + tempLight.light[2]) / 2
-                            blue1 = (blue1 + tempLight.light[3]) / 2
-                        elseif style == 2 then
-                            local tempLight = mL[XlocX][XlocY][id]
-                            if red1 > tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 > tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 > tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        else
-                            local tempLight = mL[XlocX][XlocY][id]
-                            if red1 < tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 < tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 < tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        end
-                    end
-                    mL[XlocX][XlocY][id] = {}
-                    mL[XlocX][XlocY][id].light = {red1, green1, blue1}
-                    
-                    if Map.map.lightingData[mW[XlocX][XlocY]] then
-                        local temp = Map.map.lightingData[mW[XlocX][XlocY]]
-                        red = red - temp.opacity[1]
-                        green = green - temp.opacity[2]
-                        blue = blue - temp.opacity[3]
-                    end
-                    
-                    XcheckX = XcheckX - XdeltaX
-                    XcheckY = XcheckY + XdeltaY
-                    XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY + 1
-                    Xdistance = Xdistance + XdeltaV
-                end
-            else
-                if Ydistance <= range then
-                    mT[YlocX][YlocY] = time
-                    area[areaIndex] = {YlocX, YlocY}
-                    areaIndex = areaIndex + 1
-                    red1 = red - (falloff1 * Ydistance)
-                    green1 = green - (falloff2 * Ydistance)
-                    blue1 = blue - (falloff3 * Ydistance)
-                    if not mL[YlocX][YlocY] then
-                        mL[YlocX][YlocY] = {}						
-                    elseif mL[YlocX][YlocY][id] then
-                        if style == 1 then
-                            local tempLight = mL[YlocX][YlocY][id]
-                            red1 = (red1 + tempLight.light[1]) / 2
-                            green1 = (green1 + tempLight.light[2]) / 2
-                            blue1 = (blue1 + tempLight.light[3]) / 2
-                        elseif style == 2 then
-                            local tempLight = mL[YlocX][YlocY][id]
-                            if red1 > tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 > tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 > tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        else
-                            local tempLight = mL[YlocX][YlocY][id]
-                            if red1 < tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 < tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 < tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        end
-                    end
-                    mL[YlocX][YlocY][id] = {}
-                    mL[YlocX][YlocY][id].light = {red1, green1, blue1}
-                    
-                    if Map.map.lightingData[mW[YlocX][YlocY]] then
-                        local temp = Map.map.lightingData[mW[YlocX][YlocY]]
-                        red = red - temp.opacity[1]
-                        green = green - temp.opacity[2]
-                        blue = blue - temp.opacity[3]
-                    end	
-                    
-                    YcheckX = YcheckX - YdeltaX
-                    YcheckY = YcheckY + YdeltaY
-                    YlocX, YlocY = YlocX - 1,math.ceil(YcheckY / blockScaleYt)
-                    Ydistance = Ydistance + YdeltaV
-                end
-            end
-            
-            
-            if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
-                break
-            end
-            
-            if Xdistance > range and Ydistance > range then
-                break
-            end
-        end
-        
-    elseif x < 0 and y < 0 then
-        --top left quadrant
-        
-        local Xangle = (270 - i) * toRadian --math.rad(270 - i)
-        local XcheckY = tileY
-        local XcheckX = levelPosX - (math.tan(Xangle) * (levelPosY - tileY))
-        local XdeltaY = blockScaleYt
-        local XdeltaX = math.tan(Xangle) * blockScaleYt
-        local XlocX, XlocY =math.ceil(XcheckX / blockScaleXt),math.ceil(XcheckY / blockScaleYt)
-        local Xdistance = startY / math.cos(Xangle) / blockScaleXt
-        local XdeltaV = blockScaleYt / math.cos(Xangle) / blockScaleYt
-        
-        local Yangle = (i - 180) * toRadian --math.rad(i - 180)
-        local YcheckY = levelPosY - (math.tan(Yangle) * (levelPosX - tileX))
-        local YcheckX = tileX
-        local YdeltaY = math.tan(Yangle) * blockScaleXt
-        local YdeltaX = blockScaleXt
-        local YlocX, YlocY =math.ceil(YcheckX / blockScaleXt),math.ceil(YcheckY / blockScaleYt)
-        local Ydistance = startX / math.cos(Yangle) / blockScaleYt
-        local YdeltaV = blockScaleXt / math.cos(Yangle) / blockScaleXt
-        
-        for j = 1, range * 2, 1 do
-            count = count + 1
-            
-            if Camera.worldWrapX then
-                if XlocX > worldSizeXt - Map.map.locOffsetX then
-                    XlocX = XlocX - worldSizeXt
-                end
-                if XlocX < 1 - Map.map.locOffsetX then
-                    XlocX = XlocX + worldSizeXt
-                end
-                if YlocX > worldSizeXt - Map.map.locOffsetX then
-                    YlocX = YlocX - worldSizeXt
-                end
-                if YlocX < 1 - Map.map.locOffsetX then
-                    YlocX = YlocX + worldSizeXt
-                end
-            end
-            if Camera.worldWrapY then
-                if XlocY > worldSizeYt - Map.map.locOffsetY then
-                    XlocY = XlocY - worldSizeYt
-                end
-                if XlocY < 1 - Map.map.locOffsetY then
-                    XlocY = XlocY + worldSizeYt
-                end
-                if YlocY > worldSizeYt - Map.map.locOffsetY then
-                    YlocY = YlocY - worldSizeYt
-                end
-                if YlocY < 1 - Map.map.locOffsetY then
-                    YlocY = YlocY + worldSizeYt
-                end
-            end
-            
-            if XlocX < 1 - Map.map.locOffsetX or XlocX > worldSizeXt - Map.map.locOffsetX or XlocY < 1 - Map.map.locOffsetY or XlocY > worldSizeYt - Map.map.locOffsetY then
-                breakX = true
-            end
-            if YlocX < 1 - Map.map.locOffsetX or YlocX > worldSizeXt - Map.map.locOffsetX or YlocY < 1 - Map.map.locOffsetY or YlocY > worldSizeYt - Map.map.locOffsetY then
-                breakY = true
-            end
-            if breakX and breakY then
-                break
-            end
-            
-            local red1, green1, blue1
-            
-            if Xdistance < Ydistance then
-                if Xdistance <= range then
-                    mT[XlocX][XlocY] = time
-                    area[areaIndex] = {XlocX, XlocY}
-                    areaIndex = areaIndex + 1
-                    red1 = red - (falloff1 * Xdistance)
-                    green1 = green - (falloff2 * Xdistance)
-                    blue1 = blue - (falloff3 * Xdistance)
-                    if not mL[XlocX][XlocY] then
-                        mL[XlocX][XlocY] = {}						
-                    elseif mL[XlocX][XlocY][id] then
-                        if style == 1 then
-                            local tempLight = mL[XlocX][XlocY][id]
-                            red1 = (red1 + tempLight.light[1]) / 2
-                            green1 = (green1 + tempLight.light[2]) / 2
-                            blue1 = (blue1 + tempLight.light[3]) / 2
-                        elseif style == 2 then
-                            local tempLight = mL[XlocX][XlocY][id]
-                            if red1 > tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 > tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 > tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        else
-                            local tempLight = mL[XlocX][XlocY][id]
-                            if red1 < tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 < tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 < tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        end
-                    end
-                    mL[XlocX][XlocY][id] = {}
-                    mL[XlocX][XlocY][id].light = {red1, green1, blue1}
-                    
-                    if Map.map.lightingData[mW[XlocX][XlocY]] then
-                        local temp = Map.map.lightingData[mW[XlocX][XlocY]]
-                        red = red - temp.opacity[1]
-                        green = green - temp.opacity[2]
-                        blue = blue - temp.opacity[3]
-                    end
-                    
-                    XcheckX = XcheckX - XdeltaX
-                    XcheckY = XcheckY - XdeltaY
-                    XlocX, XlocY =math.ceil(XcheckX / blockScaleXt), XlocY - 1
-                    Xdistance = Xdistance + XdeltaV
-                end
-            else
-                if Ydistance <= range then
-                    mT[YlocX][YlocY] = time
-                    area[areaIndex] = {YlocX, YlocY}
-                    areaIndex = areaIndex + 1
-                    red1 = red - (falloff1 * Ydistance)
-                    green1 = green - (falloff2 * Ydistance)
-                    blue1 = blue - (falloff3 * Ydistance)
-                    if not mL[YlocX][YlocY] then
-                        mL[YlocX][YlocY] = {}						
-                    elseif mL[YlocX][YlocY][id] then
-                        if style == 1 then
-                            local tempLight = mL[YlocX][YlocY][id]
-                            red1 = (red1 + tempLight.light[1]) / 2
-                            green1 = (green1 + tempLight.light[2]) / 2
-                            blue1 = (blue1 + tempLight.light[3]) / 2
-                        elseif style == 2 then
-                            local tempLight = mL[YlocX][YlocY][id]
-                            if red1 > tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 > tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 > tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        else
-                            local tempLight = mL[YlocX][YlocY][id]
-                            if red1 < tempLight.light[1] then
-                                red1 = tempLight.light[1]
-                            end
-                            if green1 < tempLight.light[2] then
-                                green1 = tempLight.light[2]
-                            end
-                            if blue1 < tempLight.light[3] then
-                                blue1 = tempLight.light[3]
-                            end
-                        end
-                    end
-                    mL[YlocX][YlocY][id] = {}
-                    mL[YlocX][YlocY][id].light = {red1, green1, blue1}
-                    
-                    if Map.map.lightingData[mW[YlocX][YlocY]] then
-                        local temp = Map.map.lightingData[mW[YlocX][YlocY]]
-                        red = red - temp.opacity[1]
-                        green = green - temp.opacity[2]
-                        blue = blue - temp.opacity[3]
-                    end	
-                    
-                    YcheckX = YcheckX - YdeltaX
-                    YcheckY = YcheckY - YdeltaY
-                    YlocX, YlocY = YlocX - 1,math.ceil(YcheckY / blockScaleYt)
-                    Ydistance = Ydistance + YdeltaV
-                end
-            end			
-            
-            if red1 <= 0 and green1 <= 0 and blue1 <= 0 then
-                break
-            end
-            
-            if Xdistance > range and Ydistance > range then
-                break
-            end
-        end		
-    end	
-    light.areaIndex = areaIndex
-end
-
------------------------------------------------------------
-
-Light.setPointLightSource = function(sprite)
-    Light.pointLightSource = sprite
-end
-
------------------------------------------------------------
-
-return Light
-
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "src.SaveMap" ] = function( ... ) local arg = _G.arg;
-local SaveMap = {}
-
-local json = require("json")
-local lfs = require("lfs")
-
------------------------------------------------------------
-
-SaveMap.saveMap = function(loadedMap, filePath, dir)
-    if not filePath then
-        if loadedMap then
-            filePath = loadedMap
-        else
-            filePath = source
-        end
-    end	
-    local directories = {}
-    local firstIndex = 1
-    for i = 1, string.len(filePath), 1 do
-        if string.sub(filePath, i, i) == "/" then
-            directories[#directories + 1] = string.sub(filePath, firstIndex, i - 1)
-            firstIndex = i + 1
-        end
-    end	
-    local fileName = string.sub(filePath, firstIndex, string.len(filePath))	
-    local dirPath
-    if dir == "Documents" or not dir then
-        dirPath = system.pathForFile("", system.DocumentsDirectory)
-    elseif dir == "Temporary" then
-        dirPath = system.pathForFile("", system.TemporaryDirectory)
-    elseif dir == "Resource" then
-        dirPath = system.pathForFile("", system.ResourceDirectory)
-    end	
-    if #directories > 0 then
-        
-        for i = 1, #directories, 1 do
-            lfs.chdir(dirPath)
-            local exists = false
-            for file in lfs.dir(dirPath) do
-                if file == directories[i] then
-                    exists = true
-                    break
-                end
-            end
-            if not exists then
-                lfs.mkdir(directories[i])
-            end
-            dirPath = lfs.currentdir() .. "/"..directories[i]
-        end		
-    end
-    local finalPath = dirPath.."/"..fileName	
-    
-    local jsonData
-    if not loadedMap then
-        jsonData = json.encode(Map.map)
-    else
-        jsonData = json.encode(Map.mapStorage[loadedMap])		
-    end	
-    local saveData = io.open(finalPath, "w")	
-    saveData:write(jsonData)
-    io.close(saveData)
-    
-end
-
------------------------------------------------------------
-
-return SaveMap
-end
-end
-
-do
-local _ENV = _ENV
-package.preload[ "src.DebugStats" ] = function( ... ) local arg = _G.arg;
-local DebugStats = {}
-
-local Camera = require("src.Camera")
-local Map = require("src.Map")
-
------------------------------------------------------------
-
-local prevTime = 0
-local dbTog = 0
-local dCount = 1
-local memory = "0"
-local mod
-local rectCount
-local debugX
-local debugY
-local debugLocX
-local debugLocY
-local debugVelX
-local debugVelY
-local debugAccX
-local debugAccY
-local debugLoading
-local debugMemory
-local debugFPS
-local debugText
-local frameRate
-local frameArray = {}
-local avgFrame = 1
-local lowFrame = 100
-
-DebugStats.debug = function(fps)
-    
-    if not fps then
-        fps = display.fps
-    end	
-    
-    if dbTog == 0 then
-        mod = display.fps / fps
-        local size = 22
-        local scale = 2
-        if display.viewableContentHeight < 500 then
-            size = 14
-            scale = 1
-        end
-        rectCount = display.newText("null", 50 * scale, 80 * scale, native.systemFont, size)
-        debugX = display.newText("null", 50 * scale, 20 * scale, native.systemFont, size)
-        debugY = display.newText("null", 50 * scale, 35 * scale, native.systemFont, size)
-        debugLocX = display.newText("null", 50 * scale, 50 * scale, native.systemFont, size)
-        debugLocY = display.newText("null", 50 * scale, 65 * scale, native.systemFont, size)
-        debugLoading = display.newText("null", display.viewableContentWidth / 2, 10, native.systemFont, size)
-        debugMemory = display.newText("null", 60 * scale, 95 * scale, native.systemFont, size)
-        debugFPS = display.newText("null", 60 * scale, 110 * scale, native.systemFont, size)
-        dbTog = 1		
-        rectCount:setFillColor(1, 1, 1)
-        debugX:setFillColor(1, 1, 1)
-        debugY:setFillColor(1, 1, 1)
-        debugLocX:setFillColor(1, 1, 1)
-        debugLocY:setFillColor(1, 1, 1)
-        debugLoading:setFillColor(1, 1, 1)
-        debugMemory:setFillColor(1, 1, 1)
-        debugFPS:setFillColor(1, 1, 1)
-    end		
-    
-    local layer = Map.refLayer
-    local sumRects = 0
-    
-    for i = 1, #Map.map.layers, 1 do
-        if Map.totalRects[i] then
-            sumRects = sumRects + Map.totalRects[i]
-        end
-    end
-    
-    if Map.map.orientation == Map.Type.Isometric then
-        local cameraX = string.format("%g", Camera.McameraX)
-        local cameraY = string.format("%g", Camera.McameraY)
-        debugX.text = "cameraX: "..cameraX
-        debugX:toFront()
-        debugY.text = "cameraY: "..cameraY
-        debugY:toFront()
-        debugLocX.text = "cameraLocX: "..Camera.McameraLocX	
-        debugLocY.text = "cameraLocY: "..Camera.McameraLocY
-    else
-        local cameraX = string.format("%g", Camera.McameraX)
-        local cameraY = string.format("%g", Camera.McameraY)
-        debugX.text = "cameraX: "..cameraX
-        debugX:toFront()
-        debugY.text = "cameraY: "..cameraY
-        debugY:toFront()
-        debugLocX.text = "cameraLocX: "..Camera.McameraLocX
-        debugLocY.text = "cameraLocY: "..Camera.McameraLocY
-    end
-    
-    debugLocX:toFront()
-    debugLocY:toFront()	
-    
-    rectCount.text = "Total Tiles: "..sumRects
-    rectCount:toFront()
-    dCount = dCount + 1
-    
-    if dCount >= 60 / mod then
-        dCount = 1
-        memory = string.format("%g", collectgarbage("count") / 1000)
-    end	
-    
-    debugMemory.text = "Memory: "..memory.." MB"
-    debugMemory:toFront()
-    
-    local curTime = system.getTimer()
-    local dt = curTime - prevTime
-    prevTime = curTime	
-    local fps = math.floor(1000/dt) * mod	
-    local lowDelay = 20 / mod
-    
-    if #frameArray < lowDelay then
-        frameArray[#frameArray + 1] = fps
-    else
-        local temp = 0
-        for i = 1, #frameArray, 1 do
-            temp = temp + frameArray[i]	
-        end
-        avgFrame = temp / lowDelay
-        frameArray = {}
-    end	
-    
-    debugFPS.text = "FPS: "..fps.."   AVG: "..avgFrame
-    debugFPS:toFront()
-    debugLoading.text = debugText
-    debugLoading:toFront()
-end
-
------------------------------------------------------------
-
-return DebugStats
-
-end
-end
-
-do
-local _ENV = _ENV
 package.preload[ "src.PerlinNoise" ] = function( ... ) local arg = _G.arg;
 local PerlinNoise = {}
 
@@ -10874,280 +10664,613 @@ end
 
 do
 local _ENV = _ENV
-package.preload[ "src.Xml" ] = function( ... ) local arg = _G.arg;
-local Xml = {}
+package.preload[ "src.DebugStats" ] = function( ... ) local arg = _G.arg;
+local DebugStats = {}
 
------------------------------------------------------------
-
-local json = require("json")
-
+local Camera = require("src.Camera")
 local Map = require("src.Map")
 
 -----------------------------------------------------------
 
-Xml.data = nil
+local prevTime = 0
+local dbTog = 0
+local dCount = 1
+local memory = "0"
+local mod
+local rectCount
+local debugX
+local debugY
+local debugLocX
+local debugLocY
+local debugVelX
+local debugVelY
+local debugAccX
+local debugAccY
+local debugLoading
+local debugMemory
+local debugFPS
+local debugText
+local frameRate
+local frameArray = {}
+local avgFrame = 1
+local lowFrame = 100
 
------------------------------------------------------------
-
-Xml.ToXmlString = function(value)
-    value = string.gsub (value, "&", "&amp;");		-- '&' -> "&amp;"
-    value = string.gsub (value, "<", "&lt;");		-- '<' -> "&lt;"
-    value = string.gsub (value, ">", "&gt;");		-- '>' -> "&gt;"
-    value = string.gsub (value, "\"", "&quot;");	-- '"' -> "&quot;"
-    value = string.gsub(value, "([^%w%&%;%p%\t% ])",
-    function (c) 
-        return string.format("&#x%X;", string.byte(c)) 
-    end);
-    return value;
-end
-
------------------------------------------------------------
-
-Xml.FromXmlString = function(value)
-    value = string.gsub(value, "&#x([%x]+)%;",
-    function(h) 
-        return string.char(tonumber(h,16)) 
-    end);
-    value = string.gsub(value, "&#([0-9]+)%;",
-    function(h) 
-        return string.char(tonumber(h,10)) 
-    end);
-    value = string.gsub (value, "&quot;", "\"");
-    value = string.gsub (value, "&apos;", "'");
-    value = string.gsub (value, "&gt;", ">");
-    value = string.gsub (value, "&lt;", "<");
-    value = string.gsub (value, "&amp;", "&");
-    return value;
-end
-
------------------------------------------------------------
-
-Xml.ParseArgs = function(s)
-    local arg = {}
-    string.gsub(s, "(%w+)=([\"'])(.-)%2", function (w, _, a)
-        arg[w] = Xml.FromXmlString(a);
-    end)
-    return arg
-end
-
------------------------------------------------------------
-
-Xml.loadFile = function(xmlFilename, base)
-    if not base then
-        base = system.ResourceDirectory
+DebugStats.debug = function(fps)
+    
+    if not fps then
+        fps = display.fps
+    end	
+    
+    if dbTog == 0 then
+        mod = display.fps / fps
+        local size = 22
+        local scale = 2
+        if display.viewableContentHeight < 500 then
+            size = 14
+            scale = 1
+        end
+        rectCount = display.newText("null", 50 * scale, 80 * scale, native.systemFont, size)
+        debugX = display.newText("null", 50 * scale, 20 * scale, native.systemFont, size)
+        debugY = display.newText("null", 50 * scale, 35 * scale, native.systemFont, size)
+        debugLocX = display.newText("null", 50 * scale, 50 * scale, native.systemFont, size)
+        debugLocY = display.newText("null", 50 * scale, 65 * scale, native.systemFont, size)
+        debugLoading = display.newText("null", display.viewableContentWidth / 2, 10, native.systemFont, size)
+        debugMemory = display.newText("null", 60 * scale, 95 * scale, native.systemFont, size)
+        debugFPS = display.newText("null", 60 * scale, 110 * scale, native.systemFont, size)
+        dbTog = 1		
+        rectCount:setFillColor(1, 1, 1)
+        debugX:setFillColor(1, 1, 1)
+        debugY:setFillColor(1, 1, 1)
+        debugLocX:setFillColor(1, 1, 1)
+        debugLocY:setFillColor(1, 1, 1)
+        debugLoading:setFillColor(1, 1, 1)
+        debugMemory:setFillColor(1, 1, 1)
+        debugFPS:setFillColor(1, 1, 1)
+    end		
+    
+    local layer = Map.refLayer
+    local sumRects = 0
+    
+    for i = 1, #Map.map.layers, 1 do
+        if Map.totalRects[i] then
+            sumRects = sumRects + Map.totalRects[i]
+        end
     end
     
-    local path = system.pathForFile( xmlFilename, base )
-    local hFile, err = io.open(path,"r");
-    
-    if hFile and not err then
-        local xmlText=hFile:read("*a"); -- read file content
-        io.close(hFile);
-        return Xml.ParseXmlText(xmlText),nil;
+    if Map.map.orientation == Map.Type.Isometric then
+        local cameraX = string.format("%g", Camera.McameraX)
+        local cameraY = string.format("%g", Camera.McameraY)
+        debugX.text = "cameraX: "..cameraX
+        debugX:toFront()
+        debugY.text = "cameraY: "..cameraY
+        debugY:toFront()
+        debugLocX.text = "cameraLocX: "..Camera.McameraLocX	
+        debugLocY.text = "cameraLocY: "..Camera.McameraLocY
     else
-        print( err )
-        return nil
+        local cameraX = string.format("%g", Camera.McameraX)
+        local cameraY = string.format("%g", Camera.McameraY)
+        debugX.text = "cameraX: "..cameraX
+        debugX:toFront()
+        debugY.text = "cameraY: "..cameraY
+        debugY:toFront()
+        debugLocX.text = "cameraLocX: "..Camera.McameraLocX
+        debugLocY.text = "cameraLocY: "..Camera.McameraLocY
     end
-end
-
------------------------------------------------------------
-
-Xml.ParseXmlText = function(xmlText)
-    if not Map.mapStorage[Xml.src] then
-        Map.mapStorage[Xml.src] = {}
-    end
-    local layerIndex = 0
     
-    local stack = {}
-    local top = {name=nil,value=nil,properties={},child={}}
-    table.insert(stack, top)
-    local ni,c,label,xarg, empty
-    local i, j = 1, 1
-    local triggerBase64 = false
-    local triggerXML = false
-    local triggerCSV = false
-    local x, y = 1, 1
-    while true do
-        local ni,j,c,label,xarg, empty = string.find(xmlText, "<(%/?)([%w:]+)(.-)(%/?)>", i)
-        if not ni then break end
-        local text = string.sub(xmlText, i, ni-1);
-        if not string.find(text, "^%s*$") then
-            top.value=(top.value or "")..Xml.FromXmlString(text);
-            if triggerBase64 then
-                triggerBase64 = false
-                --decode base64 directly into Map.map array
-                --------------------------------------------------------------
-                
-                local buffer = 0
-                local pos = 1
-                local bin ={}
-                local mult = 1
-                for i = 1,40 do
-                    bin[i] = mult
-                    mult = mult*2
-                end
-                local base64 = { ['A']=0,['B']=1,['C']=2,['D']=3,['E']=4,['F']=5,['G']=6,['H']=7,['I']=8,
-                    ['J']=9,['K']=10,['L']=11,['M']=12,['N']=13,['O']=14,['P']=15,['Q']=16,
-                    ['R']=17,['S']=18,['T']=19,['U']=20,['V']=21,['W']=22,['X']=23,['Y']=24,
-                    ['Z']=25,['a']=26,['b']=27,['c']=28,['d']=29,['e']=30,['f']=31,['g']=32,
-                    ['h']=33,['i']=34,['j']=35,['k']=36,['l']=37,['m']=38,['n']=39,['o']=40,
-                    ['p']=41,['q']=42,['r']=43,['s']=44,['t']=45,['u']=46,['v']=47,['w']=48,
-                    ['x']=49,['y']=50,['z']=51,['0']=52,['1']=53,['2']=54,['3']=55,['4']=56,
-                    ['5']=57,['6']=58,['7']=59,['8']=60,['9']=61,['+']=62,['/']=63,['=']=nil
-                }
-                local set = "[^%a%d%+%/%=]"
-                
-                Xml.data = string.gsub(top.value, set, "")    
-                
-                local size = 32
-                local val = {}
-                local rawPos = 1
-                local rawSize = #top.value
-                local char = ""
-                
-                while rawPos <= rawSize do
-                    while pos <= size and rawPos <= rawSize do
-                        char = string.sub(top.value,rawPos,rawPos)
-                        if base64[char] ~= nil then
-                            buffer = buffer * bin[7] + base64[char]
-                            pos = pos + 6
-                        end
-                        rawPos = rawPos + 1
-                    end
-                    if char == "=" then 
-                        break 
-                    end
-                    
-                    while pos < 33 do 
-                        buffer = buffer * bin[2] 
-                        pos = pos + 1
-                    end
-                    pos = pos - 32
-                    Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data+1] = math.floor((buffer%bin[33+pos-1])/bin[25+pos-1]) +
-                    math.floor((buffer%bin[25+pos-1])/bin[17+pos-1])*bin[9] +
-                    math.floor((buffer%bin[17+pos-1])/bin[9+pos-1])*bin[17] + 
-                    math.floor((buffer%bin[9+pos-1])/bin[pos])*bin[25]
-                    buffer = buffer % bin[pos]    	
-                end
-                --------------------------------------------------------------
-            end
-            if triggerCSV then
-                triggerCSV = false
-                Map.mapStorage[Xml.src].layers[layerIndex].data = json.decode("["..top.value.."]")
-            end
+    debugLocX:toFront()
+    debugLocY:toFront()	
+    
+    rectCount.text = "Total Tiles: "..sumRects
+    rectCount:toFront()
+    dCount = dCount + 1
+    
+    if dCount >= 60 / mod then
+        dCount = 1
+        memory = string.format("%g", collectgarbage("count") / 1000)
+    end	
+    
+    debugMemory.text = "Memory: "..memory.." MB"
+    debugMemory:toFront()
+    
+    local curTime = system.getTimer()
+    local dt = curTime - prevTime
+    prevTime = curTime	
+    local fps = math.floor(1000/dt) * mod	
+    local lowDelay = 20 / mod
+    
+    if #frameArray < lowDelay then
+        frameArray[#frameArray + 1] = fps
+    else
+        local temp = 0
+        for i = 1, #frameArray, 1 do
+            temp = temp + frameArray[i]	
         end
-        if empty == "/" then  -- empty element tag
-            if label == "tile" then
-                Map.mapStorage[Xml.src].layers[layerIndex].data[#Map.mapStorage[Xml.src].layers[layerIndex].data + 1] = tonumber(xarg:sub(7, xarg:len() - 1))
-            else
-                table.insert(top.child, {name=label,value=nil,properties=Xml.ParseArgs(xarg),child={}})
-            end
-            if label == "layer" or label == "objectgroup" or label == "imagelayer"  then
-                layerIndex = layerIndex + 1
-                if not Map.mapStorage[Xml.src].layers then
-                    Map.mapStorage[Xml.src].layers = {}
-                end
-                Map.mapStorage[Xml.src].layers[layerIndex] = {}
-                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
-            end
-        elseif c == "" then   -- start tag
-            local props = Xml.ParseArgs(xarg)
-            top = {name=label, value=nil, properties=props, child={}}
-            table.insert(stack, top)   -- new level
-            if label == "Map.map" then
-                --
-            end
-            if label == "layer" or label == "objectgroup" or label == "imagelayer" then
-                layerIndex = layerIndex + 1
-                x, y = 1, 1
-                if not Map.mapStorage[Xml.src].layers then
-                    Map.mapStorage[Xml.src].layers = {}
-                end
-                Map.mapStorage[Xml.src].layers[layerIndex] = {}
-                Map.mapStorage[Xml.src].layers[layerIndex].properties = {}
-                if label == "layer" then
-                    Map.mapStorage[Xml.src].layers[layerIndex].data = {}
-                    Map.mapStorage[Xml.src].layers[layerIndex].world = {}
-                    Map.mapStorage[Xml.src].layers[layerIndex].world[1] = {}
-                end
-            end
-            if label == "data" then
-                if props.encoding == "base64" then
-                    triggerBase64 = true
-                    if props.compression then
-                        print("Error(loadMap): Layer data compression is not supported. MTE supports CSV, TMX, and Base64(uncompressed).")
-                    end
-                elseif props.encoding == "csv" then
-                    triggerCSV = true
-                elseif not props.encoding then
-                    triggerXML = true
-                end
-            end
-        else  -- end tag
-            local toclose = table.remove(stack)  -- remove top
-            top = stack[#stack]
-            if #stack < 1 then
-                error("XmlParser: nothing to close with "..label)
-            end
-            if toclose.name ~= label then
-                error("XmlParser: trying to close "..toclose.name.." with "..label)
-            end
-            table.insert(top.child, toclose)
-        end
-        i = j+1
-    end
-    local text = string.sub(xmlText, i);
-    if not string.find(text, "^%s*$") then
-        stack[#stack].value=(stack[#stack].value or "")..Xml.FromXmlString(text);
-    end
-    if #stack > 1 then
-        error("XmlParser: unclosed "..stack[stack.n].name)
-    end
-    return stack[1].child[1];
+        avgFrame = temp / lowDelay
+        frameArray = {}
+    end	
+    
+    debugFPS.text = "FPS: "..fps.."   AVG: "..avgFrame
+    debugFPS:toFront()
+    debugLoading.text = debugText
+    debugLoading:toFront()
 end
 
 -----------------------------------------------------------
 
-return Xml
+return DebugStats
 
 end
 end
 
 do
 local _ENV = _ENV
-package.preload[ "src.PhysicsData" ] = function( ... ) local arg = _G.arg;
-local PhysicsData = {}
+package.preload[ "src.Camera" ] = function( ... ) local arg = _G.arg;
+local Camera = {}
+
+local Map = require("src.Map")
+local Screen = require("src.Screen")
 
 -----------------------------------------------------------
 
-PhysicsData.defaultDensity = 1.0
-PhysicsData.defaultFriction = 0.1
-PhysicsData.defaultBounce = 0
-PhysicsData.defaultBodyType = "static"
-PhysicsData.defaultShape = nil
-PhysicsData.defaultRadius = nil
-PhysicsData.defaultFilter = nil
-PhysicsData.layer = {}
+Camera.McameraX, Camera.McameraY = 0, 0
+Camera.McameraLocX, Camera.McameraLocY = 0, 0
 
-PhysicsData.managePhysicsStates = true
-
-PhysicsData.enablePhysicsByLayer = 0
-PhysicsData.enablePhysics = {}
-
+Camera.cameraX = 0
+Camera.cameraY = 0
+Camera.cameraLocX = 0
+Camera.cameraLocY = 0
+Camera.constrainTop = {}
+Camera.constrainBottom = {}
+Camera.constrainLeft = {}
+Camera.constrainRight = {}
+Camera.refMove = false
+Camera.override = {}
+Camera.cameraOnComplete = {}	
+Camera.cameraFocus = nil
+Camera.isCameraMoving = {}
+Camera.deltaX = {}
+Camera.deltaY = {}
+Camera.maxZoom = 9999
+Camera.minZoom = -9999
+Camera.parallaxToggle = {}
+Camera.worldWrapX = false
+Camera.worldWrapY = false
+Camera.layerWrapX = {}
+Camera.layerWrapY = {}
+Camera.currentScale = nil
+Camera.deltaZoom = nil
+Camera.screen = {}		
+Camera.cullingMargin = {0, 0, 0, 0}
+Camera.touchScroll = { false, nil, nil, nil, nil, nil }
+Camera.pinchZoom = false
+Camera.enableLighting = false
 -----------------------------------------------------------
 
-PhysicsData.enableBox2DPhysics = function(arg)
-    if ( arg == "by layer" ) then
-        PhysicsData.enablePhysicsByLayer = 1
-    elseif ( arg == "all" or arg == "Map.map" or not arg ) then
-        PhysicsData.enablePhysicsByLayer = 2
+Camera.enableTouchScroll = function()
+    Camera.touchScroll[1] = true
+    if ( Map.map.layers and not Camera.pinchZoom ) then
+        Map.masterGroup:addEventListener("touch", Camera.touchScrollPinchZoom)
     end
 end
 
 -----------------------------------------------------------
 
-return PhysicsData
+Camera.enablePinchZoom = function()
+    Camera.pinchZoom = true
+    if ( Map.map.layers and not Camera.touchScroll[1] ) then
+        Map.masterGroup:addEventListener("touch", Camera.touchScrollPinchZoom)
+    end
+end
 
+-----------------------------------------------------------
+
+Camera.disableTouchScroll = function()
+    Camera.touchScroll[1] = false
+    if ( Map.map.layers and not Camera.pinchZoom ) then
+        Map.masterGroup:removeEventListener("touch", Camera.touchScrollPinchZoom)
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.disablePinchZoom = function()
+    Camera.pinchZoom = false
+    if ( Map.map.layers and not Camera.touchScroll[1] ) then
+        Map.masterGroup:removeEventListener("touch", Camera.touchScrollPinchZoom)
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.toggleWorldWrapX = function(command)
+    if command == true or command == false then
+        Camera.worldWrapX = command
+    else 
+        if Camera.worldWrapX then
+            Camera.worldWrapX = false
+        elseif not Camera.worldWrapX then
+            Camera.worldWrapX = true
+        end
+    end
+    if Map.map.properties then
+        for i = 1, #Map.map.layers, 1 do
+            Camera.layerWrapX[i] = Camera.worldWrapX
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.toggleWorldWrapY = function(command)
+    if command == true or command == false then
+        Camera.worldWrapY = command
+    else
+        if Camera.worldWrapY then
+            Camera.worldWrapY = false
+        elseif not Camera.worldWrapY then
+            Camera.worldWrapY = true
+        end
+    end
+    if Map.map.properties then
+        for i = 1, #Map.map.layers, 1 do
+            Camera.layerWrapY[i] = Camera.worldWrapY
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.easingHelper = function(distance, frames, kind)
+    local frameLength = display.fps
+    local move = {}
+    local total = 0
+    if not kind then
+        kind = easing.linear
+    end		
+    for i = 1, frames, 1 do
+        move[i] = kind((i - 1) * frameLength, frameLength * frames, 0, 1000)
+    end		
+    local move2 = {}
+    local total2 = 0
+    for i = 1, frames, 1 do
+        if i < frames then
+            move2[i] = move[i + 1] - move[i]
+        else
+            move2[i] = 1000 - move[i]
+        end
+        total2 = total2 + move2[i]
+    end
+    local mod2 = distance / total2
+    for i = 1, frames, 1 do
+        move2[i] = move2[i] * mod2
+    end	
+    return move2
+end
+
+-----------------------------------------------------------
+
+Camera.setCameraFocus = function(object, offsetX, offsetY)
+    if object then
+        Camera.cameraFocus = object
+        Camera.cameraFocus.cameraOffsetX = {}
+        Camera.cameraFocus.cameraOffsetY = {}
+        for i = 1, #Map.map.layers, 1 do
+            Camera.cameraFocus.cameraOffsetX[i] = offsetX or 0
+            Camera.cameraFocus.cameraOffsetY[i] = offsetY or 0
+        end
+    else
+        Camera.cameraFocus = nil
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.zoom = function(scale, time, easing)
+    if not scale and not time then
+        if Camera.deltaZoom then
+            return true
+        end
+    else
+        Camera.currentScale = Map.masterGroup.xScale
+        local distance = Camera.currentScale - scale
+        time = math.ceil(time / Map.frameTime)
+        if not time or time < 1 then
+            time = 1
+        end
+        local delta = Camera.easingHelper(distance, time, easing)
+        Camera.deltaZoom = delta
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.getCamera = function(layer)
+    if Map.map.orientation == Map.Type.Isometric then
+        if layer then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
+            local isoPos = Map.isoUntransform2(cameraX, cameraY)
+            cameraX = isoPos[1]
+            cameraY = isoPos[2]
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+            return {levelPosX = cameraX, 
+                levelPosY = cameraY, 
+                locX = cameraLocX, 
+            locY = cameraLocY}
+        else
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+            local isoPos = Map.isoUntransform2(Camera.McameraX, Camera.McameraY)
+            Camera.McameraX = isoPos[1]
+            Camera.McameraY = isoPos[2]
+            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
+            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
+            return {levelPosX = Camera.McameraX, 
+                levelPosY = Camera.McameraY, 
+                locX = Camera.McameraLocX, 
+            locY = Camera.McameraLocY}
+        end
+    else
+        if layer then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[layer]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)
+            return {levelPosX = cameraX, 
+                levelPosY = cameraY, 
+                locX = cameraLocX, 
+            locY = cameraLocY}
+        else
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            Camera.McameraX, Camera.McameraY = Map.masterGroup[Map.refLayer]:contentToLocal(tempX, tempY)
+            Camera.McameraLocX = math.ceil(Camera.McameraX / Map.map.tilewidth)
+            Camera.McameraLocY = math.ceil(Camera.McameraY / Map.map.tileheight)
+            return {levelPosX = Camera.McameraX, 
+                levelPosY = Camera.McameraY, 
+                locX = Camera.McameraLocX, 
+            locY = Camera.McameraLocY}
+        end
+    end
+end
+
+
+-----------------------------------------------------------
+
+Camera.moveCameraTo = function(params)
+    local check = true
+    for i = 1, #Map.map.layers, 1 do
+        if i == params.layer or not params.layer then
+            if Camera.isCameraMoving[i] then
+                check = false
+            else
+                if params.disableParallax then
+                    Camera.parallaxToggle[i] = false
+                else
+                    params.disableParallax = false
+                end
+                Camera.cameraOnComplete[i] = false
+            end
+        end
+    end		
+    if check and not params.layer then
+        Camera.refMove = true
+        Camera.cameraOnComplete[1] = params.onComplete
+    end
+    for i = 1, #Map.map.layers, 1 do
+        if (i == params.layer or not params.layer) and check then
+            local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+            local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+            local cameraLocX = math.ceil(cameraX / Map.map.tilewidth)
+            local cameraLocY = math.ceil(cameraY / Map.map.tileheight)	
+            
+            if not params.time or params.time < 1 then
+                params.time = 1
+            end
+            local time = math.ceil(params.time / Map.frameTime)
+            local levelPosX = params.levelPosX
+            local levelPosY = params.levelPosY
+            if params.sprite then
+                if params.sprite.levelPosX then
+                    levelPosX = params.sprite.levelPosX + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
+                    levelPosY = params.sprite.levelPosY + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
+                else
+                    levelPosX = params.sprite.x + params.sprite.levelWidth * 0.0 + params.sprite.offsetX 
+                    levelPosY = params.sprite.y + params.sprite.levelHeight * 0.0 + params.sprite.offsetY 
+                end
+            end
+            if params.locX then
+                levelPosX = params.locX * Map.map.tilewidth - (Map.map.tilewidth / 2)
+            end
+            if params.locY then
+                levelPosY = params.locY * Map.map.tileheight - (Map.map.tileheight / 2)
+            end				
+            
+            if not levelPosX then
+                levelPosX = cameraX
+            end
+            if not levelPosY then
+                levelPosY = cameraY
+            end
+            
+            if not Camera.layerWrapX[i] then
+                endX = levelPosX
+                distanceX = endX - cameraX
+                Camera.deltaX[i] = {}
+                Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+            else
+                local tempPosX = levelPosX
+                if tempPosX > Map.map.layers[i].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) then
+                    tempPosX = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
+                elseif tempPosX < 1 - (Map.map.locOffsetX * Map.map.tilewidth) then
+                    tempPosX = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
+                end			
+                local tempPosX2 = tempPosX
+                if tempPosX > cameraX then
+                    tempPosX2 = tempPosX - Map.map.layers[i].width * Map.map.tilewidth
+                elseif tempPosX < cameraX then
+                    tempPosX2 = tempPosX + Map.map.layers[i].width * Map.map.tilewidth
+                end			
+                distanceXAcross = math.abs(cameraX - tempPosX)
+                distanceXWrap = math.abs(cameraX - tempPosX2)
+                if distanceXWrap < distanceXAcross then
+                    if tempPosX > cameraX then
+                        Map.masterGroup[i].x = (cameraX + Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
+                    elseif tempPosX < cameraX then
+                        Map.masterGroup[i].x = (cameraX - Map.map.layers[i].width * Map.map.tilewidth) * -1 * Map.map.layers[i].properties.scaleX
+                    end
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                    endX = tempPosX
+                    distanceX = endX - cameraX
+                    Camera.deltaX[i] = {}
+                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+                else
+                    endX = levelPosX
+                    distanceX = endX - cameraX
+                    Camera.deltaX[i] = {}
+                    Camera.deltaX[i] = Camera.easingHelper(distanceX, time, params.transition)
+                end
+            end				
+            if not Camera.layerWrapY[i] then
+                endY = levelPosY
+                distanceY = endY - cameraY
+                Camera.deltaY[i] = {}
+                Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+            else
+                local tempPosY = levelPosY
+                if tempPosY > Map.map.layers[i].height * Map.map.tileheight then
+                    tempPosY = tempPosY - Map.map.layers[i].height * Map.map.tileheight
+                elseif tempPosY < 1 then
+                    tempPosY = tempPosY + Map.map.layers[i].height * Map.map.tileheight
+                end			
+                local tempPosY2 = tempPosY
+                if tempPosY > cameraY then
+                    tempPosY2 = tempPosY - Map.map.layers[i].height * Map.map.tileheight
+                elseif tempPosY < cameraY then
+                    tempPosY2 = tempPosY + Map.map.layers[i].height * Map.map.tileheight
+                end					
+                distanceYAcross = math.abs(cameraY - tempPosY)
+                distanceYWrap = math.abs(cameraY - tempPosY2)
+                if distanceYWrap < distanceYAcross then
+                    if tempPosY > cameraY then
+                        Map.masterGroup[i].y = (cameraY + Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
+                    elseif tempPosY < cameraY then
+                        Map.masterGroup[i].y = (cameraY - Map.map.layers[i].height * Map.map.tileheight) * -1 * Map.map.layers[i].properties.scaleY
+                    end
+                    local tempX, tempY = Map.masterGroup.parent:localToContent(Screen.screenCenterX, Screen.screenCenterY)
+                    local cameraX, cameraY = Map.masterGroup[i]:contentToLocal(tempX, tempY)
+                    endY = tempPosY
+                    distanceY = endY - cameraY
+                    Camera.deltaY[i] = {}
+                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+                else
+                    endY = levelPosY
+                    distanceY = endY - cameraY
+                    Camera.deltaY[i] = {}
+                    Camera.deltaY[i] = Camera.easingHelper(distanceY, time, params.transition)
+                end
+            end				
+            Camera.isCameraMoving[i] = true
+            if not Camera.refMove then
+                Camera.cameraOnComplete[i] = params.onComplete
+            end
+        end
+    end
+end
+
+-----------------------------------------------------------
+
+Camera.removeCameraConstraints = function(layer)
+    if layer then
+        constrainLeft[layer] = nil
+        constrainTop[layer] = nil
+        constrainRight[layer] = nil
+        constrainBottom[layer] = nil
+        Map.masterGroup[layer].vars.constrainLayer = nil
+    else
+        for i = 1, #Map.map.layers, 1 do
+            constrainLeft[i] = nil
+            constrainTop[i] = nil
+            constrainRight[i] = nil
+            constrainBottom[i] = nil
+        end
+    end
+end
+
+return Camera
+end
+end
+
+do
+local _ENV = _ENV
+package.preload[ "src.SaveMap" ] = function( ... ) local arg = _G.arg;
+local SaveMap = {}
+
+local json = require("json")
+local lfs = require("lfs")
+
+-----------------------------------------------------------
+
+SaveMap.saveMap = function(loadedMap, filePath, dir)
+    if not filePath then
+        if loadedMap then
+            filePath = loadedMap
+        else
+            filePath = source
+        end
+    end	
+    local directories = {}
+    local firstIndex = 1
+    for i = 1, string.len(filePath), 1 do
+        if string.sub(filePath, i, i) == "/" then
+            directories[#directories + 1] = string.sub(filePath, firstIndex, i - 1)
+            firstIndex = i + 1
+        end
+    end	
+    local fileName = string.sub(filePath, firstIndex, string.len(filePath))	
+    local dirPath
+    if dir == "Documents" or not dir then
+        dirPath = system.pathForFile("", system.DocumentsDirectory)
+    elseif dir == "Temporary" then
+        dirPath = system.pathForFile("", system.TemporaryDirectory)
+    elseif dir == "Resource" then
+        dirPath = system.pathForFile("", system.ResourceDirectory)
+    end	
+    if #directories > 0 then
+        
+        for i = 1, #directories, 1 do
+            lfs.chdir(dirPath)
+            local exists = false
+            for file in lfs.dir(dirPath) do
+                if file == directories[i] then
+                    exists = true
+                    break
+                end
+            end
+            if not exists then
+                lfs.mkdir(directories[i])
+            end
+            dirPath = lfs.currentdir() .. "/"..directories[i]
+        end		
+    end
+    local finalPath = dirPath.."/"..fileName	
+    
+    local jsonData
+    if not loadedMap then
+        jsonData = json.encode(Map.map)
+    else
+        jsonData = json.encode(Map.mapStorage[loadedMap])		
+    end	
+    local saveData = io.open(finalPath, "w")	
+    saveData:write(jsonData)
+    io.close(saveData)
+    
+end
+
+-----------------------------------------------------------
+
+return SaveMap
 end
 end
 
@@ -11430,6 +11553,13 @@ M.levelToLocY = Map.levelToLocY
 M.setParentGroup = Map.setParentGroup
 M.setTileProperties = Map.setTileProperties
 M.unloadMap = Map.unloadMap
+
+-------------------------
+-- Sprite
+-------------------------
+M.removeSprite = Sprites.removeSprite
+M.moveSpriteTo = Sprites.moveSpriteTo
+M.sendSpriteTo = Sprites.sendSpriteTo
 
 -------------------------
 -- Other
@@ -15689,129 +15819,6 @@ end
 
 Sprites.spritesFrozen = false
 Camera.McameraFrozen = false
-
------------------------------------------------------------
-
-M.sendSpriteTo = function(params)
-    local sprite = params.sprite
-    if params.locX then
-        sprite.locX = params.locX
-        sprite.locY = params.locY
-        sprite.levelPosX, sprite.levelPosY = Map.locToLevelPos(params.locX, params.locY)
-        sprite.x = sprite.levelPosX
-        sprite.y = sprite.levelPosY
-    elseif params.levelPosX then
-        sprite.levelPosX = params.levelPosX
-        sprite.levelPosY = params.levelPosY
-        sprite.locX, sprite.locY = M.levelToLoc(params.levelPosX, params.levelPosY)
-        sprite.x = sprite.levelPosX
-        sprite.y = sprite.levelPosY
-    end
-end
-
------------------------------------------------------------
-
-M.moveSpriteTo = function(params)
-    local object = params.sprite
-    local layer = object.layer or object.parent.layer or object.parent.vars.layer
-    local time = params.time or 0
-    params.time = math.ceil(params.time / Map.frameTime)
-    local easing = params.transition or easing.linear		
-    if params.locX then
-        params.levelPosX = Map.locToLevelPosX(params.locX)
-    end
-    if params.locY then
-        params.levelPosY = Map.locToLevelPosY(params.locY)
-    end
-    if not params.levelPosX then
-        params.levelPosX = object.x
-    end
-    if not params.levelPosY then
-        params.levelPosY = object.y
-    end
-    local constrain = {true, true, true, true}
-    if params.constrainToMap ~= nil then
-        constrain = params.constrainToMap
-    elseif object.constrainToMap then
-        constrain = object.constrainToMap
-    end
-    if params.override then
-        if Sprites.movingSprites[object] then
-            Sprites.movingSprites[object] = false
-        end
-    end		
-    local easingHelper = function(distance, frames)
-        local frameLength = display.fps
-        local move = {}
-        for i = 1, frames, 1 do
-            move[i] = easing((i - 1) * frameLength, frameLength * frames, 0, 1000)
-        end
-        local move2 = {}
-        local total2 = 0
-        for i = 1, frames, 1 do
-            if i < frames then
-                move2[i] = move[i + 1] - move[i]
-            else
-                move2[i] = 1000 - move[i]
-            end
-            total2 = total2 + move2[i]
-        end
-        local mod2 = distance / total2
-        local move3 = {}
-        for i = 1, frames, 1 do
-            move3[i] = move2[frames - (i - 1)] * mod2
-        end
-        return move3
-    end		
-    if not Sprites.movingSprites[object] then
-        if Camera.layerWrapX[layer] then
-            local oX = object.levelPosX or object.x
-            if oX - params.levelPosX < -0.5 * Map.map.width * Map.map.tilewidth then
-                params.levelPosX = params.levelPosX - Map.map.width * Map.map.tilewidth
-            end
-            if oX - params.levelPosX > 0.5 * Map.map.width * Map.map.tilewidth then
-                params.levelPosX = params.levelPosX + Map.map.width * Map.map.tilewidth
-            end
-            local distanceX = params.levelPosX - oX
-            object.deltaX = easingHelper(distanceX, params.time, params.easing)
-            Sprites.movingSprites[params.sprite] = #object.deltaX
-        else
-            if params.levelPosX > Map.map.layers[layer].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth) and constrain[3] then
-                params.levelPosX = Map.map.layers[layer].width * Map.map.tilewidth - (Map.map.locOffsetX * Map.map.tilewidth)
-            end
-            if params.levelPosX < 0 - (Map.map.locOffsetX * Map.map.tilewidth) and constrain[1] then
-                params.levelPosX = 0 - (Map.map.locOffsetX * Map.map.tilewidth)
-            end
-            local distanceX = params.levelPosX - (object.levelPosX or object.x)
-            object.deltaX = easingHelper(distanceX, params.time, params.easing)
-            Sprites.movingSprites[params.sprite] = #object.deltaX
-        end			
-        if Camera.layerWrapY[layer] then
-            local oY = object.levelPosY or object.y
-            if oY - params.levelPosY < -0.5 * Map.map.height * Map.map.tileheight then
-                params.levelPosY = params.levelPosY - Map.map.height * Map.map.tileheight
-            end
-            if oY - params.levelPosY > 0.5 * Map.map.height * Map.map.tileheight then
-                params.levelPosY = params.levelPosY + Map.map.height * Map.map.tileheight
-            end
-            local distanceY = params.levelPosY - oY
-            object.deltaY = easingHelper(distanceY, params.time, params.easing)
-            Sprites.movingSprites[params.sprite] = #object.deltaY
-        else
-            if params.levelPosY > Map.map.layers[layer].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight) and constrain[4] then
-                params.levelPosY = Map.map.layers[layer].height * Map.map.tileheight - (Map.map.locOffsetY * Map.map.tileheight)
-            end
-            if params.levelPosY < 0 - (Map.map.locOffsetY * Map.map.tileheight) and constrain[2] then
-                params.levelPosY = 0 - (Map.map.locOffsetY * Map.map.tileheight)
-            end
-            local distanceY = params.levelPosY - (object.levelPosY or object.y)
-            object.deltaY = easingHelper(distanceY, params.time, params.easing)
-            Sprites.movingSprites[params.sprite] = #object.deltaY
-        end			
-        object.onComplete = params.onComplete
-        object.isMoving = true
-    end
-end
 
 -----------------------------------------------------------
 
