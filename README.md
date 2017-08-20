@@ -35,6 +35,9 @@ mte/
 # Compiled project will be at dist/mte.lua
 ```
 
+# Roadmap
+  Current Goal: Refactor the single file library that was given as the original state and split it up across various files and components.
+
 # Demos
 
 ### Sonic the Hedgehog - Finale:
