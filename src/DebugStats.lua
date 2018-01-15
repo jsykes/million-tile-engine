@@ -4,7 +4,7 @@ local Camera = require("src.Camera")
 local Map = require("src.Map")
 
 -----------------------------------------------------------
-
+local displayGroup = display.newGroup();
 local prevTime = 0
 local dbTog = 0
 local dCount = 1
@@ -50,54 +50,69 @@ DebugStats.debug = function(fps)
             boxWidth = 360
         end
 
-        rectCount = native.newTextBox( display.contentWidth * .05, display.contentHeight * .05, boxWidth, boxHeight );
+        rectCount = native.newTextBox( 0, display.contentHeight * .05, boxWidth, boxHeight );
         rectCount.font = native.newFont( "Helvetica", size );
         rectCount:setTextColor( 1, 1, 1);
         rectCount.alpha = 1.0;
         rectCount.hasBackground = false;
         rectCount.text = 'null';
 
-        debugX = native.newTextBox( display.contentWidth * .05, rectCount.y + rectCount.height, boxWidth, boxHeight );
+        debugX = native.newTextBox( 0, rectCount.y + rectCount.height, boxWidth, boxHeight );
         debugX.font = native.newFont( "Helvetica", size );
         debugX:setTextColor( 1, 1, 1);
         debugX.alpha = 1.0;
         debugX.hasBackground = false;
         debugX.text = 'null';
 
-        debugY = native.newTextBox( display.contentWidth * .05, debugX.y + debugX.height, boxWidth, boxHeight );
+        debugY = native.newTextBox( 0, debugX.y + debugX.height, boxWidth, boxHeight );
         debugY.font = native.newFont( "Helvetica", size );
         debugY:setTextColor( 1, 1, 1);
         debugY.alpha = 1.0;
         debugY.hasBackground = false;
         debugY.text = 'null';
 
-        debugLocX = native.newTextBox( display.contentWidth * .05, debugY.y + debugY.height, boxWidth, boxHeight );
+        debugLocX = native.newTextBox( 0, debugY.y + debugY.height, boxWidth, boxHeight );
         debugLocX.font = native.newFont( "Helvetica", size );
         debugLocX:setTextColor( 1, 1, 1);
         debugLocX.alpha = 1.0;
         debugLocX.hasBackground = false;
         debugLocX.text = 'null';
 
-        debugLocY = native.newTextBox( display.contentWidth * .05, debugLocX.y + debugLocX.height, boxWidth, boxHeight );
+        debugLocY = native.newTextBox( 0, debugLocX.y + debugLocX.height, boxWidth, boxHeight );
         debugLocY.font = native.newFont( "Helvetica", size );
         debugLocY:setTextColor( 1, 1, 1);
         debugLocY.alpha = 1.0;
         debugLocY.hasBackground = false;
         debugLocY.text = 'null';
 
-        debugMemory = native.newTextBox( display.contentWidth * .05, debugLocY.y + debugLocY.height, boxWidth, boxHeight );
+        debugMemory = native.newTextBox( 0, debugLocY.y + debugLocY.height, boxWidth, boxHeight );
         debugMemory.font = native.newFont( "Helvetica", size );
         debugMemory:setTextColor( 1, 1, 1);
         debugMemory.alpha = 1.0;
         debugMemory.hasBackground = false;
         debugMemory.text = 'null';
 
-        debugFPS = native.newTextBox( display.contentWidth * .05, debugMemory.y + debugMemory.height, boxWidth, boxHeight );
+        debugFPS = native.newTextBox( 0, debugMemory.y + debugMemory.height, boxWidth, boxHeight );
         debugFPS.font = native.newFont( "Helvetica", size );
         debugFPS:setTextColor( 1, 1, 1);
         debugFPS.alpha = 1.0;
         debugFPS.hasBackground = false;
         debugFPS.text = 'null';
+
+        displayGroup:insert(rectCount);
+        displayGroup:insert(debugX);
+        displayGroup:insert(debugY);
+        displayGroup:insert(debugLocX);
+        displayGroup:insert(debugLocY);
+        displayGroup:insert(debugMemory);
+        displayGroup:insert(debugFPS);
+
+        displayGroup.anchorX = 0;
+        displayGroup.anchorY = 0;
+
+        displayGroup.x = -math.abs(display.screenOriginX);
+        displayGroup.y = -math.abs(display.screenOriginY);
+        displayGroup.anchorChildren = true;
 
         dbTog = 1
     end
