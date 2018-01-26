@@ -45,7 +45,15 @@ end
 
 -----------------------------------------------------------
 
-Sprites.addSprite = function(sprite, setup)
+Sprites.addSprite = function(sprite, setup, properties)
+
+    -- Process custom sprite properties (if any)
+    if (properties ~= nil) then
+        if (properties.hidden == "true") then
+            sprite.isVisible = false;
+        end
+    end
+
     local layer
     if setup.level then
         layer = Map.spriteLayers[setup.level]

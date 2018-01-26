@@ -36,7 +36,12 @@ Camera.screen = {}
 Camera.cullingMargin = {0, 0, 0, 0}
 Camera.touchScroll = { false, nil, nil, nil, nil, nil }
 Camera.pinchZoom = false
-Camera.enableLighting = false
+
+Camera.enableLighting = false;
+Camera.setLightingEnabled = function(isEnabled)
+    Camera.enableLighting = isEnabled or false;
+end
+
 -----------------------------------------------------------
 
 Camera.enableTouchScroll = function()

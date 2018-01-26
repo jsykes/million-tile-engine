@@ -231,7 +231,7 @@ M.setLayerProperties = Core.setLayerProperties
 M.cameraX = Camera.McameraX
 M.cameraY = Camera.McameraY
 
-M.enableLighting = Camera.enableLighting
+M.setLightingEnabled = Camera.setLightingEnabled;
 M.disablePinchZoom = Camera.disablePinchZoom
 M.disableTouchScroll = Camera.disableTouchScroll
 M.enablePinchZoom = Camera.enablePinchZoom
@@ -309,6 +309,7 @@ M.setScreenBounds = Screen.setScreenBounds
 -- Screen
 -------------------------
 M.addSprite = Sprites.addSprite
+
 
 -----------------------------------------------------------
 -----------------------------------------------------------
@@ -1901,7 +1902,7 @@ M.preloadMap = function(src, dir)
                 if Map.enableFlipRotation then
                     Map.mapStorage[Xml.src].layers[i].flipRotation = {}
                 end
-                if M.enableLighting and i == 1 then
+                if Camera.enableLighting and i == 1 then
                     Map.mapStorage[Xml.src].lightToggle = {}
                     Map.mapStorage[Xml.src].lightToggle2 = {}
                     Map.mapStorage[Xml.src].lightToggle3 = {}
@@ -1913,7 +1914,7 @@ M.preloadMap = function(src, dir)
                     if Map.mapStorage[Xml.src].layers[i].lighting then
                         Map.mapStorage[Xml.src].layers[i].lighting[x] = {}
                     end
-                    if M.enableLighting and i == 1 then
+                    if Camera.enableLighting and i == 1 then
                         Map.mapStorage[Xml.src].lightToggle[x] = {}
                         Map.mapStorage[Xml.src].lightToggle2[x] = {}
                         Map.mapStorage[Xml.src].lightToggle3[x] = {}
@@ -1926,7 +1927,7 @@ M.preloadMap = function(src, dir)
                         lx = lx - Map.mapStorage[Xml.src].width
                     end
                     for y = 1, Map.mapStorage[Xml.src].layers[i].height, 1 do
-                        if M.enableLighting and i == 1 then
+                        if Camera.enableLighting and i == 1 then
                             Map.mapStorage[Xml.src].lightToggle2[x][y] = 0
                         end
                         
@@ -1958,7 +1959,7 @@ M.preloadMap = function(src, dir)
                                 Map.mapStorage[Xml.src].layers[i].world[x][y] = Map.mapStorage[Xml.src].layers[i].data[(Map.mapStorage[Xml.src].width * (ly - 1)) + lx]
                             end
                             
-                            if M.enableLighting then
+                            if Camera.enableLighting then
                                 if Map.mapStorage[Xml.src].layers[i].world[x][y] ~= 0 then
                                     local frameIndex = Map.mapStorage[Xml.src].layers[i].world[x][y]
                                     local tileSetIndex = 1
@@ -2592,13 +2593,13 @@ M.createLayer = function(layer)
             Map.map.layers[layer].properties.scaleY = (Map.map.height * Map.map.layers[layer].properties.parallaxY) / Map.map.layers[layer].height
         end
     end
-    if M.enableLighting then
+    if Camera.enableLighting then
         if not Map.map.layers[layer].lighting then
             Map.map.layers[layer].lighting = {}
         end
     end
     
-    if M.enableLighting then
+    if Camera.enableLighting then
         for x = 1, Map.map.layers[layer].width, 1 do
             if Map.map.layers[layer].lighting then
                 Map.map.layers[layer].lighting[x] = {}
@@ -2637,7 +2638,9 @@ M.createLayer = function(layer)
             Map.masterGroup[k].vars = {alpha = 1}
             Map.masterGroup[k].vars.layer = k	
             Map.masterGroup[k].x = Map.masterGroup[Map.refLayer].x
-            Map.masterGroup[k].y = Map.masterGroup[Map.refLayer].y	
+            Map.masterGroup[k].y = Map.masterGroup[Map.refLayer].y
+
+            table.print(Map.materGroup[k]);
         end
     end
     
@@ -3075,7 +3078,7 @@ M.appendMap = function(src, dir, locX, locY, layer, overwrite)
                             end
                             
                             --find static lights
-                            if M.enableLighting then
+                            if Camera.enableLighting then
                                 for key,value in pairs(Map.mapStorage[Xml.src].lights) do
                                     Map.map.lights[Light.lightIDs] = value
                                     Light.lightIDs = Light.lightIDs + 1
@@ -3136,7 +3139,7 @@ M.appendMap = function(src, dir, locX, locY, layer, overwrite)
                         end
                         
                         --find static lights
-                        if M.enableLighting then
+                        if Camera.enableLighting then
                             for key,value in pairs(Map.mapStorage[Xml.src].lights) do
                                 Map.map.lights[Light.lightIDs] = value
                                 Light.lightIDs = Light.lightIDs + 1
@@ -3651,7 +3654,7 @@ M.loadMap = function(src, dir, unload)
     local globalID = {}
     local prevLevel = "1"	
     Map.map.lightingData = {}
-    if M.enableLighting then
+    if Camera.enableLighting then
         Map.map.lastLightUpdate = system.getTimer()
         if not Map.map.lights then
             Map.map.lights = {}
@@ -3922,7 +3925,7 @@ M.loadMap = function(src, dir, unload)
         if Map.map.layers[i].parallaxX ~= 1 or Map.map.layers[i].parallaxY ~= 1 or Map.map.layers[i].toggleParallax == true then
             Camera.parallaxToggle[i] = true
         end
-        if M.enableLighting then
+        if Camera.enableLighting then
             if not Map.map.layers[i].lighting then
                 Map.map.layers[i].lighting = {}
             end
@@ -3990,7 +3993,7 @@ M.loadMap = function(src, dir, unload)
         end
         ----------------------------------------------------------------------------------
         
-        if M.enableLighting then
+        if Camera.enableLighting then
             for x = 1, Map.map.layers[i].width, 1 do
                 if Map.map.layers[i].lighting then
                     Map.map.layers[i].lighting[x] = {}
@@ -4019,7 +4022,7 @@ M.loadMap = function(src, dir, unload)
                 if Map.enableFlipRotation then
                     Map.map.layers[i].flipRotation = {}
                 end
-                if M.enableLighting and i == 1 then
+                if Camera.enableLighting and i == 1 then
                     Map.map.lightToggle = {}
                     Map.map.lightToggle2 = {}
                     Map.map.lightToggle3 = {}
@@ -4038,7 +4041,7 @@ M.loadMap = function(src, dir, unload)
                     if mL.lighting then
                         mL.lighting[x] = {}
                     end
-                    if M.enableLighting and i == 1 then
+                    if Camera.enableLighting and i == 1 then
                         Map.map.lightToggle[x] = {}
                         Map.map.lightToggle2[x] = {}
                         Map.map.lightToggle3[x] = {}
@@ -4051,7 +4054,7 @@ M.loadMap = function(src, dir, unload)
                         lx = lx - Map.map.width
                     end
                     for y = 1, Map.map.layers[i].height, 1 do
-                        if M.enableLighting and i == 1 then
+                        if Camera.enableLighting and i == 1 then
                             Map.map.lightToggle2[x][y] = 0
                         end
                         local ly = y
@@ -4094,7 +4097,7 @@ M.loadMap = function(src, dir, unload)
                                 end
                                 
                                 --find static lights
-                                if M.enableLighting then
+                                if Camera.enableLighting then
                                     tileStr = tostring((frameIndex - (Map.map.tilesets[tileSetIndex].firstgid - 1)) - 1)
                                     local mT = Map.map.tilesets[tileSetIndex].tileproperties
                                     if mT then
@@ -4435,7 +4438,7 @@ M.loadMap = function(src, dir, unload)
         end
     end
     --process static lights		
-    if M.enableLighting then
+    if Camera.enableLighting then
         local startTime=system.getTimer()
         for key,value in pairs(Map.map.lights) do
             if value.rays then
@@ -4498,7 +4501,7 @@ M.changeSpriteLayer = function(sprite, layer)
     if object.lighting then
         object:setFillColor(Map.map.layers[layer].redLight, Map.map.layers[layer].greenLight, Map.map.layers[layer].blueLight)
     end		
-    if M.enableLighting then
+    if Camera.enableLighting then
         if object.light then
             if object.light.rays then
                 object.light.areaIndex = 1
@@ -5747,5 +5750,41 @@ M.createMTE = function()
 end
 
 -----------------------------------------------------------
+
+
+-- Utility
+table.print = function ( t )
+    local print_r_cache={}
+    local function sub_print_r(t,indent)
+        if (print_r_cache[tostring(t)]) then
+            print(indent.."*"..tostring(t))
+        else
+            print_r_cache[tostring(t)]=true
+            if (type(t)=="table") then
+                for pos,val in pairs(t) do
+                    if (type(val)=="table") then
+                        print(indent.."["..pos.."] => "..tostring(t).." {")
+                        sub_print_r(val,indent..string.rep(" ",string.len(pos)+8))
+                        print(indent..string.rep(" ",string.len(pos)+6).."}")
+                    elseif (type(val)=="string") then
+                        print(indent.."["..pos..'] => "'..val..'"')
+                    else
+                        print(indent.."["..pos.."] => "..tostring(val))
+                    end
+                end
+            else
+                print(indent..tostring(t))
+            end
+        end
+    end
+    if (type(t)=="table") then
+        print(tostring(t).." {")
+        sub_print_r(t,"  ")
+        print("}")
+    else
+        sub_print_r(t,"  ")
+    end
+    print()
+end
 
 return M

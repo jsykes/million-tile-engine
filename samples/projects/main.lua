@@ -25,10 +25,10 @@ system.activate( "multitouch" )
 ------------------------- 
 -- Comment / uncomment to sample each project.
 
-require("AppendMap.main")
+-- require("AppendMap.main")
 -- require("CastleDemo.main")
 -- require("IsometricComposer.main")
--- require("Lighting.main")
+require("Lighting.main")
 -- require("LineOfSight.main")
 -- require("PlatformerAngled.main")
 -- require("PlatformerBasic.main")

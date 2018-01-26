@@ -6,7 +6,7 @@ local Screen = Screen
 --LOAD MAP -------------------------------------------------------------------------------
 mte.toggleWorldWrapX(false)
 mte.toggleWorldWrapY(false)
-mte.enableLighting = true --Enables Tile Lighting System
+mte.setLightingEnabled(true); --Enables Tile Lighting System
 mte.enableSpriteSorting = true
 mte.enableTileFlipAndRotation()
 

@@ -375,7 +375,6 @@ end
 -----------------------------------------------------------
 
 Map.setMapProperties = function(t)
-    
     Map.map.properties = t or {}
     
     --LIGHTING

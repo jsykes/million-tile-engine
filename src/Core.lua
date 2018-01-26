@@ -4739,7 +4739,7 @@ local drawObject = function(object, i, ky)
                     setup.offscreenPhysics = true
                 end
             end
-            Sprites.addSprite(Sprites.sprites[spriteName], setup)			
+            Sprites.addSprite(Sprites.sprites[spriteName], setup, object.properties);			
                 local polygon = {{x = 0, y = 0},
                 {x = levelWidth * Map.isoScaleMod, y = 0},
                 {x = levelWidth * Map.isoScaleMod, y = levelHeight * Map.isoScaleMod},
@@ -4988,7 +4988,8 @@ local drawObject = function(object, i, ky)
                     setup.offscreenPhysics = true
                 end
             end
-            Sprites.addSprite(Sprites.sprites[spriteName], setup)
+            Sprites.addSprite(Sprites.sprites[spriteName], setup, object.properties);
+
             local maxX, minX, maxY, minY = levelWidth / 2, levelWidth / -2, levelHeight / 2, levelHeight / -2
             local centerX = (maxX - minX) / 2 + minX
             local centerY = (maxY - minY) / 2 + minY
@@ -5280,7 +5281,7 @@ local drawObject = function(object, i, ky)
                 end
             end
             Sprites.sprites[spriteName].lighting = false
-            Sprites.addSprite(Sprites.sprites[spriteName], setup)
+            Sprites.addSprite(Sprites.sprites[spriteName], setup, object.properties);
             if PhysicsData.enablePhysics[i] then
                 physics.addBody(Sprites.sprites[spriteName], bodyType, unpack(bodies))
             end
@@ -5313,7 +5314,7 @@ local drawObject = function(object, i, ky)
                     end
                 end
                 Sprites.sprites[spriteName].lighting = false
-                Sprites.addSprite(Sprites.sprites[spriteName], setup)
+                Sprites.addSprite(Sprites.sprites[spriteName], setup, object.properties);
                 local maxX, minX, maxY, minY = width / 2, width / -2, height / 2, height / -2
                 local centerX = (maxX - minX) / 2 + minX
                 local centerY = (maxY - minY) / 2 + minY
@@ -5390,7 +5391,7 @@ local drawObject = function(object, i, ky)
                     end
                 end
                 Sprites.sprites[spriteName].lighting = false
-                Sprites.addSprite(Sprites.sprites[spriteName], setup)
+                Sprites.addSprite(Sprites.sprites[spriteName], setup, object.properties);
                 local minX = 0
                 local maxX = width
                 local minY = 0
@@ -5600,7 +5601,7 @@ local drawObject = function(object, i, ky)
             end
         end
         Sprites.sprites[spriteName].lighting = false
-        Sprites.addSprite(Sprites.sprites[spriteName], setup)
+        Sprites.addSprite(Sprites.sprites[spriteName], setup, object.properties);
         local centerX = (maxX - minX) / 2 + minX
         local centerY = (maxY - minY) / 2 + minY
         Sprites.sprites[spriteName].bounds = {math.ceil(centerX / Map.map.tilewidth), 
@@ -5879,7 +5880,7 @@ local drawObject = function(object, i, ky)
             end
         end
         Sprites.sprites[spriteName].lighting = false
-        Sprites.addSprite(Sprites.sprites[spriteName], setup)
+        Sprites.addSprite(Sprites.sprites[spriteName], setup, object.properties);
         local centerX = (maxX - minX) / 2 + minX
         local centerY = (maxY - minY) / 2 + minY
         Sprites.sprites[spriteName].bounds = {math.ceil(centerX / Map.map.tilewidth), 
@@ -6056,7 +6057,7 @@ local drawObject = function(object, i, ky)
             end
         end
         Sprites.sprites[spriteName].lighting = false
-        Sprites.addSprite(Sprites.sprites[spriteName], setup)
+        Sprites.addSprite(Sprites.sprites[spriteName], setup, object.properties);
         local minX = 0
         local maxX = width
         local minY = 0
