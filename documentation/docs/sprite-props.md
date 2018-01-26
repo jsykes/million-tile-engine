@@ -70,6 +70,12 @@ Same as Corona SDK’s xScale property. The xScale is calculated by the engine t
 Same as Corona SDK’s yScale property. (see xScale)
 
 
+## Extended Tiled Properties
+
+### hidden
+The display object will be created but will be set to invisible. This was added so hidden markers and triggers can exist and be detected by collision and other types of interaction. IE. doors, map transitions, event triggers, etc.
+
+
 ## Sprite Functions
 
 The function addSprite() also adds the following methods for converting from abstract internally managed coordinates to the world’s level position.
